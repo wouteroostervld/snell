@@ -1,4 +1,5 @@
 import Codec.Picture
+import GHC.Exts
 type Vector3 = ( Double, Double, Double )
 type Origin = Vector3
 type Normal = Vector3
@@ -16,7 +17,7 @@ type Up = Direction
 type Rays = [Direction]
 data Camera = Camera Location Rays
 data World = World Camera [Surface]
-data Light = DirectionalLight Vector3
+data Light = DirectionalLight Vector3 | PointLight Vector3 Double
 
 -- _x_cam_coords count aspectratio (from -1 to 1 or -ar to ar if ar < 1)
 _x_cam_coords:: Int -> Double -> [Double]
@@ -31,11 +32,10 @@ _y_cam_coords c ar = _x_cam_coords c (-(1/ar))
 -- xc pixelcount x
 -- xc pixelcount y
 -- ar aspectratio x-size/y-size
--- fl focallength distance between film and pinhole
+-- fl 10focallength distance between film and pinhole
 cameraRays:: Int -> Int -> Double -> Double -> [Vector3]
 cameraRays xc yc ar fl = [ ( x, y, (-fl) ) | y <- _y_cam_coords yc (1/ar), x <- _x_cam_coords xc ar ] 
-defaultCamera focallength = Camera ( 0, 0, 0 ) (cameraRays 640 480 1.33 focallength) 
-light = DirectionalLight (0.6, 0.6, 1)
+defaultCamera focallength = Camera ( 0, 0, 0 ) (map normalize $ cameraRays 1280 720 1.78 focallength) 
 
 absolute:: Vector3 -> Double
 absolute ( x, y, z ) = ( a + b + c ) ** ( 1/2 )
@@ -69,12 +69,19 @@ calcD:: Vector3 -> Double
 calcD ( a, b , c) = (b ** 2) - ( 4 * a * c )
 
 intersection:: Line -> Surface -> [Double] 
-intersection (Line support direction) sphere 
+intersection (Line support direction) (Sphere origin radius color) 
     | d < 0 = [] 
-    | d == 0 = [ (-b) / (2*a) ]
-    | d > 0 = [ ((-b) + (d ** (1/2))) / (2*a), ((-b) - (d ** (1/2))) / (2*a) ]
-    where (a, b, c) = sphereIntersectionFormula support direction sphere
+    | d == 0 = filter (\x -> x > 0) [ (-b) / (2*a) ]
+    | d > 0 = filter (\x -> x > 0) [ ((-b) + (d ** (1/2))) / (2*a), ((-b) - (d ** (1/2))) / (2*a) ]
+    where (a, b, c) = sphereIntersectionFormula support direction (Sphere origin radius color)
           d = calcD (a, b, c)
+
+intersection (Line support direction) (Plane origin normal color)
+    | (incline /= 0) && (d > 0) = [ d ]
+    | otherwise = []
+    where incline = direction *. normal
+          d = ( ( origin -. support ) *. normal ) / incline 
+
 
 sm:: Double -> Vector3 -> Vector3
 sm scalar (v1, v2, v3) = ( scalar*v1, scalar*v2, scalar*v3)
@@ -84,30 +91,65 @@ distance2Coord (Line origin direction) distance = origin +. ( distance `sm` dire
 
 surfaceNormal:: Surface -> Location -> Vector3
 surfaceNormal (Sphere origin _ _) location = normalize ( location -. origin )
+surfaceNormal (Plane _ normal _) location = normalize normal 
 
-surface = Sphere ( 0, 0, -10.0) 5 (255, 255, 0)
-plane = Plane (0, 0, 0 ) ( 0, 1, 0 )
---scene = [ sphere, plane ]
+sphere = Sphere ( 15, 0, -60) 15 (127, 127, 0)
+sphere2 = Sphere ( -15, 0, -45) 15 (127, 0, 0)
+plane = Plane (0, -15, 0 ) ( 0, 1, 0 ) (255, 255, 255)
+scene = [ sphere, plane, sphere2 ]
 camera = defaultCamera 1 
+--light = PointLight (5, 0, -5) 0.2e5
+light = DirectionalLight ( 1, 1, 1)
 Camera _ rays = camera
 getPix (a:as) _ _ = (as, a)
 
-shade :: Light -> Surface -> Camera -> Vector3 -> PixelRGBA8
-shade (DirectionalLight lv) (Sphere origin radius (r, g, b)) (Camera location _) ray 
-    | intersections == [] = PixelRGBA8 0 0 30 255
-    | factor < 0 = PixelRGBA8 0 0 0 255
-    | otherwise = (PixelRGBA8 sr sg sb 255)
-    where snv = surfaceNormal (Sphere origin radius (r, g, b)) (distance2Coord (Line location ray) (minimum intersections))
-          factor = ((normalize lv) *. snv)
-          sr = round(fromIntegral(r)*factor)
-          sg = round(fromIntegral(g)*factor)
-          sb = round(fromIntegral(b)*factor)
-          intersections = intersection (Line location ray) (Sphere origin radius (r,g,b))
+cap:: Double -> Double
+cap i 
+    | i > 1 = 1
+    | otherwise = i
 
--- img = map (\x -> if (_, x ) == [] then (PixelRGBA8 0 0 0 255 ) else ( (surfaceNormal surface) . (distance2Coord ray) . minimum) $ map ($ surface) $ map (\x r -> (r, intersection (0, 0, 0) r surface)) rays
-img = map (shade light surface camera) rays 
+flatQuantize:: Double -> Vector3 -> PixelRGBA8
+flatQuantize base ( a, b, c ) = PixelRGBA8 (flat a) (flat b) (flat c) 255
+    where flat x = round(255*(x/base))
 
-(_, expimg) = generateFoldImage (getPix) img 640 480
+expQuantize:: Double -> Double -> Vector3 -> PixelRGBA8
+expQuantize exposure base ( a, b, c ) = PixelRGBA8 (expose a) (expose b) (expose c) 255
+    where expose x = round (( 1 - exp (-(x/base) * exposure )) * 255)
+
+getBase:: [Vector3] -> Double
+getBase pixels = base
+    where ( rs, gs, bs ) = unzip3 pixels
+          base = max (maximum rs) $ max (maximum gs) (maximum bs)
+
+shade :: Light -> [Surface] -> Camera -> Vector3 -> Vector3
+shade l surfaces (Camera location _) ray 
+    | null intersections = ( 0, 0, 10 )
+    | factor < 0 = ( 0, 0, 0 ) 
+    | shadow = ( 0, 0, 0 )
+    | otherwise = ( sr, sg, sb )
+    where lv = case l of (DirectionalLight lv) -> lv
+                         (PointLight location _) -> location -. coord
+          coord = distance2Coord (Line location ray) ((minimum . snd) d)
+          snv = surfaceNormal (fst d) coord
+          factor = case l of (DirectionalLight _) -> ((normalize lv) *. snv)
+                             (PointLight _ i) -> i * ((normalize lv) *. snv) / ( 4 * pi * ( absolute lv ) ^ 2 )
+          sr = fromIntegral(r)*factor
+          sg = fromIntegral(g)*factor
+          sb = fromIntegral(b)*factor
+          intersections = sortWith (\(_,d) -> minimum d ) $ filter (\(_,d) -> d /= [] ) $ map (\s -> (s, intersection (Line location ray) s)) surfaces
+          d = head intersections
+          ( r, g, b ) = case (fst d) of (Sphere _ _ (cr, cg, cb)) -> ( cr, cg, cb )
+                                        (Plane _ _ (cr, cg, cb)) -> ( cr, cg, cb )
+          shadow = case l of (PointLight _ _) -> if length ( filter ( \x -> length x > 0 ) $ map ((filter (\x -> x < absolute lv)). (intersection (Line coord_bias (normalize lv)))) surfaces ) > 0 then True else False
+                             (DirectionalLight _) -> if length ( filter ( \x -> length x > 0 ) $ map (intersection (Line coord_bias (normalize lv))) surfaces ) > 0 then True else False
+
+          coord_bias = (1e-7 `sm` snv ) +. coord 
+
+img = map (shade light scene camera) rays
+base = getBase img
+concrete_img = map (expQuantize 6 base) img
+
+(_, expimg) = generateFoldImage (getPix) concrete_img 1280 720 
 
 main :: IO()
 main = do
