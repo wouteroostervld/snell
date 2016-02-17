@@ -1,0 +1,2 @@
+# snell
+Raytracer in haskell
