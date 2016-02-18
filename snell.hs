@@ -8,8 +8,8 @@ type Location = Vector3
 type Radius = Double
 type FocalLength = Double
 type Color = (Int,Int,Int) 
-data Surface = Sphere Origin Radius Color
-             | Plane Origin Normal Color
+data Surface = Sphere Origin Radius ( Vector3 -> Color )
+             | Plane Origin Normal  ( Vector3 -> Color )
 data Line = Line Origin Direction
 type Scene = [ Surface ]
 type Front = Direction
@@ -130,8 +130,8 @@ shade l surfaces (Camera location _) ray
           sb = fromIntegral(b)*factor
           intersections = sortWith (\(_,d) -> minimum d ) $ filter (\(_,d) -> d /= [] ) $ map (\s -> (s, intersection (Line location ray) s)) surfaces
           d = head intersections
-          ( r, g, b ) = case (fst d) of (Sphere _ _ (cr, cg, cb)) -> ( cr, cg, cb )
-                                        (Plane _ _ (cr, cg, cb)) -> ( cr, cg, cb )
+          ( r, g, b ) = case (fst d) of (Sphere _ _ c ) -> c coord
+                                        (Plane _ _ c ) -> c coord
           shadow = case l of (PointLight _ _) -> if length ( filter ( \x -> length x > 0 ) $ map ((filter (\x -> x < absolute lv)). (intersection (Line coord_bias (normalize lv)))) surfaces ) > 0 then True else False
                              (DirectionalLight _) -> if length ( filter ( \x -> length x > 0 ) $ map (intersection (Line coord_bias (normalize lv))) surfaces ) > 0 then True else False
           coord_bias = (1e-7 `sm` snv ) +. coord 
@@ -142,10 +142,15 @@ concrete_img = map (expQuantize 6 base) img
 --concrete_img = map (flatQuantize base) img
 (_, expimg) = generateFoldImage (getPix) concrete_img 1280 720 
 
+checker:: Color -> Color -> Double -> Vector3 -> Color
+checker black white size ( x, _, z )
+    | ( floor(x/size) + floor(z/size) ) `mod` 2 == 0 = black 
+    | otherwise                                        = white
+
 -- scene, light and camera
-sphere = Sphere ( 15, 0, -60) 15 (65, 65, 0)
-sphere2 = Sphere ( -15, 0, -45) 15 (65, 0, 0)
-plane = Plane (0, -15, 0 ) ( 0, 1, 0 ) (255, 255, 255)
+sphere = Sphere ( 15, 0, -60) 15 (\_ -> (65, 65, 0))
+sphere2 = Sphere ( -15, 0, -45) 15 (\_ -> (65, 0, 0))
+plane = Plane (0, -15, 0 ) ( 0, 1, 0 ) (checker (32, 32, 32) (127, 127, 127) 10)
 scene = [ sphere, plane, sphere2 ]
 camera = defaultCamera 1 
 --light = PointLight (5, 0, -5) 0.2e5
