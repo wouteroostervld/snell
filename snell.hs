@@ -93,14 +93,6 @@ surfaceNormal:: Surface -> Location -> Vector3
 surfaceNormal (Sphere origin _ _) location = normalize ( location -. origin )
 surfaceNormal (Plane _ normal _) location = normalize normal 
 
-sphere = Sphere ( 15, 0, -60) 15 (127, 127, 0)
-sphere2 = Sphere ( -15, 0, -45) 15 (127, 0, 0)
-plane = Plane (0, -15, 0 ) ( 0, 1, 0 ) (255, 255, 255)
-scene = [ sphere, plane, sphere2 ]
-camera = defaultCamera 1 
---light = PointLight (5, 0, -5) 0.2e5
-light = DirectionalLight ( 1, 1, 1)
-Camera _ rays = camera
 getPix (a:as) _ _ = (as, a)
 
 cap:: Double -> Double
@@ -142,14 +134,23 @@ shade l surfaces (Camera location _) ray
                                         (Plane _ _ (cr, cg, cb)) -> ( cr, cg, cb )
           shadow = case l of (PointLight _ _) -> if length ( filter ( \x -> length x > 0 ) $ map ((filter (\x -> x < absolute lv)). (intersection (Line coord_bias (normalize lv)))) surfaces ) > 0 then True else False
                              (DirectionalLight _) -> if length ( filter ( \x -> length x > 0 ) $ map (intersection (Line coord_bias (normalize lv))) surfaces ) > 0 then True else False
-
           coord_bias = (1e-7 `sm` snv ) +. coord 
 
 img = map (shade light scene camera) rays
 base = getBase img
 concrete_img = map (expQuantize 6 base) img
-
+--concrete_img = map (flatQuantize base) img
 (_, expimg) = generateFoldImage (getPix) concrete_img 1280 720 
+
+-- scene, light and camera
+sphere = Sphere ( 15, 0, -60) 15 (65, 65, 0)
+sphere2 = Sphere ( -15, 0, -45) 15 (65, 0, 0)
+plane = Plane (0, -15, 0 ) ( 0, 1, 0 ) (255, 255, 255)
+scene = [ sphere, plane, sphere2 ]
+camera = defaultCamera 1 
+--light = PointLight (5, 0, -5) 0.2e5
+light = DirectionalLight ( 1, 1, 1)
+Camera _ rays = camera
 
 main :: IO()
 main = do
