@@ -1,5 +1,6 @@
 import Codec.Picture
 import GHC.Exts
+import Data.Maybe
 type Vector3 = ( Double, Double, Double )
 type Origin = Vector3
 type Normal = Vector3
@@ -7,7 +8,7 @@ type Direction = Vector3
 type Location = Vector3
 type Radius = Double
 type FocalLength = Double
-type Color = (Int,Int,Int) 
+type Color = (Int,Int,Int)
 data Surface = Sphere Origin Radius ( Vector3 -> Color )
              | Plane Origin Normal  ( Vector3 -> Color )
 data Line = Line Origin Direction
@@ -34,8 +35,8 @@ _y_cam_coords c ar = _x_cam_coords c (-(1/ar))
 -- ar aspectratio x-size/y-size
 -- fl 10focallength distance between film and pinhole
 cameraRays:: Int -> Int -> Double -> Double -> [Vector3]
-cameraRays xc yc ar fl = [ ( x, y, (-fl) ) | y <- _y_cam_coords yc (1/ar), x <- _x_cam_coords xc ar ] 
-defaultCamera focallength = Camera ( 0, 0, 0 ) (map normalize $ cameraRays 1280 720 1.78 focallength) 
+cameraRays xc yc ar fl = [ ( x, y, (-fl) ) | y <- _y_cam_coords yc (1/ar), x <- _x_cam_coords xc ar ]
+defaultCamera focallength = Camera ( 0, 0, 0 ) (map normalize $ cameraRays 1280 720 1.78 focallength)
 
 absolute:: Vector3 -> Double
 absolute ( x, y, z ) = ( a + b + c ) ** ( 1/2 )
@@ -49,7 +50,7 @@ normalize ( x , y , z ) = ( x/l, y/l, z/l )
 
 -- inproduct between vectors
 -- cosine of angle when used with normalized vectors
--- AKA magnitude*|a||b| of projection of the smaller on the bigger vector 
+-- AKA magnitude*|a||b| of projection of the smaller on the bigger vector
 (*.):: Vector3 -> Vector3 -> Double
 (*.) (a1, a2, a3) (b1, b2, b3) = (a1*b1)+(a2*b2)+(a3*b3)
 
@@ -61,26 +62,28 @@ normalize ( x , y , z ) = ( x/l, y/l, z/l )
 
 sphereIntersectionFormula:: Vector3 -> Vector3 -> Surface -> Vector3
 sphereIntersectionFormula support direction (Sphere location radius _) = ( a, b, c )
-    where a = 1 
+    where a = 1
           b = 2 * ( direction *. ( support -. location ))
-          c = ((absolute ( support -. location )) ** 2) - ( radius ** 2 ) 
+          c = ((absolute ( support -. location )) ** 2) - ( radius ** 2 )
 
 calcD:: Vector3 -> Double
 calcD ( a, b , c) = (b ** 2) - ( 4 * a * c )
 
-intersection:: Line -> Surface -> [Double] 
-intersection (Line support direction) (Sphere origin radius color) 
-    | d < 0 = [] 
-    | d == 0 = filter (\x -> x > 0) [ (-b) / (2*a) ]
-    | d > 0 = filter (\x -> x > 0) [ ((-b) + (d ** (1/2))) / (2*a), ((-b) - (d ** (1/2))) / (2*a) ]
+intersection:: Line -> Surface -> Maybe Double
+intersection (Line support direction) (Sphere origin radius color)
+    | d < 0 = Nothing
+    | x1 < 0 && x2 < 0 = Nothing
+    | otherwise = Just $ min x1 x2
     where (a, b, c) = sphereIntersectionFormula support direction (Sphere origin radius color)
           d = calcD (a, b, c)
+          x1 = ((-b) + (d ** (1/2))) / (2*a)
+          x2 = ((-b) - (d ** (1/2))) / (2*a)
 
 intersection (Line support direction) (Plane origin normal color)
-    | (incline /= 0) && (d > 0) = [ d ]
-    | otherwise = []
+    | (incline /= 0) && (d > 0) = Just d
+    | otherwise = Nothing
     where incline = direction *. normal
-          d = ( ( origin -. support ) *. normal ) / incline 
+          d = ( ( origin -. support ) *. normal ) / incline
 
 
 sm:: Double -> Vector3 -> Vector3
@@ -91,12 +94,12 @@ distance2Coord (Line origin direction) distance = origin +. ( distance `sm` dire
 
 surfaceNormal:: Surface -> Location -> Vector3
 surfaceNormal (Sphere origin _ _) location = normalize ( location -. origin )
-surfaceNormal (Plane _ normal _) location = normalize normal 
+surfaceNormal (Plane _ normal _) location = normalize normal
 
 getPix (a:as) _ _ = (as, a)
 
 cap:: Double -> Double
-cap i 
+cap i
     | i > 1 = 1
     | otherwise = i
 
@@ -114,9 +117,9 @@ getBase pixels = base
           base = max (maximum rs) $ max (maximum gs) (maximum bs)
 
 shade :: Light -> [Surface] -> Camera -> Vector3 -> Vector3
-shade l surfaces (Camera location _) ray 
+shade l surfaces (Camera location _) ray
     | null intersections = ( 0, 0, 10 )
-    | factor < 0 = ( 0, 0, 0 ) 
+    | factor < 0 = ( 0, 0, 0 )
     | shadow = ( 0, 0, 0 )
     | otherwise = ( sr, sg, sb )
     where lv = case l of (DirectionalLight lv) -> lv
@@ -128,23 +131,23 @@ shade l surfaces (Camera location _) ray
           sr = fromIntegral(r)*factor
           sg = fromIntegral(g)*factor
           sb = fromIntegral(b)*factor
-          intersections = sortWith (\(_,d) -> minimum d ) $ filter (\(_,d) -> d /= [] ) $ map (\s -> (s, intersection (Line location ray) s)) surfaces
+          intersections = sortWith (\(_,d) -> fromJust d ) $ filter (\(_,d) -> d /= Nothing ) $ map (\s -> (s, intersection (Line location ray) s)) surfaces
           d = head intersections
           ( r, g, b ) = case (fst d) of (Sphere _ _ c ) -> c coord
                                         (Plane _ _ c ) -> c coord
-          shadow = case l of (PointLight _ _) -> if length ( filter ( \x -> length x > 0 ) $ map ((filter (\x -> x < absolute lv)). (intersection (Line coord_bias (normalize lv)))) surfaces ) > 0 then True else False
-                             (DirectionalLight _) -> if length ( filter ( \x -> length x > 0 ) $ map (intersection (Line coord_bias (normalize lv))) surfaces ) > 0 then True else False
-          coord_bias = (1e-7 `sm` snv ) +. coord 
+          shadow = case l of (PointLight _ _) -> not $ null $ filter (\x -> x < absolute lv) $ catMaybes $ map (intersection (Line coord_bias (normalize lv))) surfaces
+                             (DirectionalLight _) -> not $ null $  catMaybes $ map (intersection (Line coord_bias (normalize lv))) surfaces
+          coord_bias = (1e-7 `sm` snv ) +. coord
 
 img = map (shade light scene camera) rays
 base = getBase img
 concrete_img = map (expQuantize 6 base) img
 --concrete_img = map (flatQuantize base) img
-(_, expimg) = generateFoldImage (getPix) concrete_img 1280 720 
+(_, expimg) = generateFoldImage (getPix) concrete_img 1280 720
 
 checker:: Color -> Color -> Double -> Vector3 -> Color
 checker black white size ( x, _, z )
-    | ( floor(x/size) + floor(z/size) ) `mod` 2 == 0 = black 
+    | ( floor(x/size) + floor(z/size) ) `mod` 2 == 0 = black
     | otherwise                                        = white
 
 -- scene, light and camera
@@ -152,9 +155,9 @@ sphere = Sphere ( 15, 0, -60) 15 (\_ -> (65, 65, 0))
 sphere2 = Sphere ( -15, 0, -45) 15 (\_ -> (65, 0, 0))
 plane = Plane (0, -15, 0 ) ( 0, 1, 0 ) (checker (32, 32, 32) (127, 127, 127) 10)
 scene = [ sphere, plane, sphere2 ]
-camera = defaultCamera 1 
---light = PointLight (5, 0, -5) 0.2e5
-light = DirectionalLight ( 1, 1, 1)
+camera = defaultCamera 1
+light = PointLight (30, 30, 0) 0.2e5
+-- light = DirectionalLight ( 1, 1, 1)
 Camera _ rays = camera
 
 main :: IO()
