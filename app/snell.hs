@@ -61,7 +61,7 @@ normalize ( x , y , z ) = ( x/l, y/l, z/l )
 
 sphereIntersectionFormula:: Vector3 -> Vector3 -> Surface -> Vector3
 sphereIntersectionFormula support direction (Sphere location radius _) = ( a, b, c )
-    where a = (absolute direction) ** 2
+    where a = 1 
           b = 2 * ( direction *. ( support -. location ))
           c = ((absolute ( support -. location )) ** 2) - ( radius ** 2 ) 
 
