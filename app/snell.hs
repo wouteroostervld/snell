@@ -157,7 +157,7 @@ reflectionShader l surfaces s coord location ray
 
 img = map (castRay light scene camera) rays
 base = getBase img
-concrete_img = map (expQuantize 6 base) img
+concrete_img = map (expQuantize 12 base) img
 --concrete_img = map (flatQuantize base) img
 (_, expimg) = generateFoldImage (getPix) concrete_img 1280 720
 
