@@ -9,8 +9,8 @@ type Location = Vector3
 type Radius = Double
 type FocalLength = Double
 type Color = (Int,Int,Int)
-data Surface = Sphere Origin Radius ( Vector3 -> Color )
-             | Plane Origin Normal  ( Vector3 -> Color )
+data Surface = Sphere Origin Radius ( Vector3 -> Color ) ( Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3 )
+             | Plane Origin Normal  ( Vector3 -> Color ) ( Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3 )
 data Line = Line Origin Direction
 type Scene = [ Surface ]
 type Front = Direction
@@ -61,7 +61,7 @@ normalize ( x , y , z ) = ( x/l, y/l, z/l )
 (+.) (a1, a2, a3) (b1, b2, b3) = ( a1 + b1, a2 + b2, a3 + b3 )
 
 sphereIntersectionFormula:: Vector3 -> Vector3 -> Surface -> Vector3
-sphereIntersectionFormula support direction (Sphere location radius _) = ( a, b, c )
+sphereIntersectionFormula support direction (Sphere location radius _ _) = ( a, b, c )
     where a = 1
           b = 2 * ( direction *. ( support -. location ))
           c = ((absolute ( support -. location )) ** 2) - ( radius ** 2 )
@@ -70,16 +70,16 @@ calcD:: Vector3 -> Double
 calcD ( a, b , c) = (b ** 2) - ( 4 * a * c )
 
 intersection:: Line -> Surface -> Maybe Double
-intersection (Line support direction) (Sphere origin radius color)
+intersection (Line support direction) (Sphere origin radius color shader)
     | d < 0 = Nothing
     | x1 < 0 && x2 < 0 = Nothing
     | otherwise = Just $ min x1 x2
-    where (a, b, c) = sphereIntersectionFormula support direction (Sphere origin radius color)
+    where (a, b, c) = sphereIntersectionFormula support direction (Sphere origin radius color shader)
           d = calcD (a, b, c)
           x1 = ((-b) + (d ** (1/2))) / (2*a)
           x2 = ((-b) - (d ** (1/2))) / (2*a)
 
-intersection (Line support direction) (Plane origin normal color)
+intersection (Line support direction) (Plane origin normal color shader)
     | (incline /= 0) && (d > 0) = Just d
     | otherwise = Nothing
     where incline = direction *. normal
@@ -93,8 +93,8 @@ distance2Coord:: Line -> Double -> Vector3
 distance2Coord (Line origin direction) distance = origin +. ( distance `sm` direction )
 
 surfaceNormal:: Surface -> Location -> Vector3
-surfaceNormal (Sphere origin _ _) location = normalize ( location -. origin )
-surfaceNormal (Plane _ normal _) location = normalize normal
+surfaceNormal (Sphere origin _ _ _) location = normalize ( location -. origin )
+surfaceNormal (Plane _ normal _ _) location = normalize normal
 
 getPix (a:as) _ _ = (as, a)
 
@@ -119,22 +119,27 @@ getBase pixels = base
 shade :: Light -> [Surface] -> Camera -> Vector3 -> Vector3
 shade l surfaces (Camera location _) ray
     | null intersections = ( 0, 0, 10 )
+    | otherwise = case s of (Sphere _ _ _ shader) -> shader l surfaces s coord location ray
+                            (Plane  _ _ _ shader) -> shader l surfaces s coord location ray
+    where intersections = sortWith (\(_,d) -> fromJust d ) $ filter (\(_,d) -> d /= Nothing ) $ map (\s -> (s, intersection (Line location ray) s)) surfaces
+          (s, Just d) = head intersections
+          coord = distance2Coord (Line location ray) d
+
+diffuseShader :: Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3
+diffuseShader l surfaces s coord location ray
     | factor < 0 = ( 0, 0, 0 )
     | shadow = ( 0, 0, 0 )
     | otherwise = ( sr, sg, sb )
     where lv = case l of (DirectionalLight lv) -> lv
                          (PointLight location _) -> location -. coord
-          coord = distance2Coord (Line location ray) ((minimum . snd) d)
-          snv = surfaceNormal (fst d) coord
+          snv = surfaceNormal s coord
           factor = case l of (DirectionalLight _) -> ((normalize lv) *. snv)
                              (PointLight _ i) -> i * ((normalize lv) *. snv) / ( 4 * pi * ( absolute lv ) ^ 2 )
           sr = fromIntegral(r)*factor
           sg = fromIntegral(g)*factor
           sb = fromIntegral(b)*factor
-          intersections = sortWith (\(_,d) -> fromJust d ) $ filter (\(_,d) -> d /= Nothing ) $ map (\s -> (s, intersection (Line location ray) s)) surfaces
-          d = head intersections
-          ( r, g, b ) = case (fst d) of (Sphere _ _ c ) -> c coord
-                                        (Plane _ _ c ) -> c coord
+          ( r, g, b ) = case s of (Sphere _ _ c _) -> c coord
+                                  (Plane _ _ c _ ) -> c coord
           shadow = case l of (PointLight _ _) -> not $ null $ filter (\x -> x < absolute lv) $ catMaybes $ map (intersection (Line coord_bias (normalize lv))) surfaces
                              (DirectionalLight _) -> not $ null $  catMaybes $ map (intersection (Line coord_bias (normalize lv))) surfaces
           coord_bias = (1e-7 `sm` snv ) +. coord
@@ -151,9 +156,9 @@ checker black white size ( x, _, z )
     | otherwise                                        = white
 
 -- scene, light and camera
-sphere = Sphere ( 15, 0, -60) 15 (\_ -> (65, 65, 0))
-sphere2 = Sphere ( -15, 0, -45) 15 (\_ -> (65, 0, 0))
-plane = Plane (0, -15, 0 ) ( 0, 1, 0 ) (checker (32, 32, 32) (127, 127, 127) 10)
+sphere = Sphere ( 15, 0, -60) 15 (\_ -> (65, 65, 0)) diffuseShader
+sphere2 = Sphere ( -15, 0, -45) 15 (\_ -> (65, 0, 0)) diffuseShader
+plane = Plane (0, -15, 0 ) ( 0, 1, 0 ) (checker (32, 32, 32) (127, 127, 127) 10) diffuseShader
 scene = [ sphere, plane, sphere2 ]
 camera = defaultCamera 1
 light = PointLight (30, 30, 0) 0.2e5
