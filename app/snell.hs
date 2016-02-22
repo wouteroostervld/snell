@@ -116,8 +116,8 @@ getBase pixels = base
     where ( rs, gs, bs ) = unzip3 pixels
           base = max (maximum rs) $ max (maximum gs) (maximum bs)
 
-shade :: Light -> [Surface] -> Camera -> Vector3 -> Vector3
-shade l surfaces (Camera location _) ray
+castRay :: Light -> [Surface] -> Camera -> Vector3 -> Vector3
+castRay l surfaces (Camera location _) ray
     | null intersections = ( 0, 0, 10 )
     | otherwise = case s of (Sphere _ _ _ shader) -> shader l surfaces s coord location ray
                             (Plane  _ _ _ shader) -> shader l surfaces s coord location ray
@@ -144,7 +144,18 @@ diffuseShader l surfaces s coord location ray
                              (DirectionalLight _) -> not $ null $  catMaybes $ map (intersection (Line coord_bias (normalize lv))) surfaces
           coord_bias = (1e-7 `sm` snv ) +. coord
 
-img = map (shade light scene camera) rays
+reflectionShader :: Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3
+reflectionShader l surfaces s coord location ray
+    = teint `scale` (castRay l surfaces (Camera coord_bias []) rv)
+    where rv = ( ray -. ( ( 2 * ( ray *. snv ) ) `sm` snv ) )
+          snv = surfaceNormal s coord
+          coord_bias = (1e-7 `sm` snv ) +. coord
+          (r, g, b) = case s of (Sphere _ _ c _) -> c coord
+                                (Plane _ _ c _ ) -> c coord
+          teint = ( fromIntegral(r)/255, fromIntegral(g)/255, fromIntegral(b)/255 ) :: Vector3
+          scale (a1, a2, a3) (b1, b2, b3) = (a1*b1,a2*b2,a3*b3)
+
+img = map (castRay light scene camera) rays
 base = getBase img
 concrete_img = map (expQuantize 6 base) img
 --concrete_img = map (flatQuantize base) img
@@ -156,10 +167,11 @@ checker black white size ( x, _, z )
     | otherwise                                        = white
 
 -- scene, light and camera
-sphere = Sphere ( 15, 0, -60) 15 (\_ -> (65, 65, 0)) diffuseShader
+sphere = Sphere ( 15, 0, -60) 15 (\_ -> (10, 10, 128)) reflectionShader
 sphere2 = Sphere ( -15, 0, -45) 15 (\_ -> (65, 0, 0)) diffuseShader
+sphere3 = Sphere ( 0, 15 , 45 ) 30 (\_ -> (150,150,150)) diffuseShader
 plane = Plane (0, -15, 0 ) ( 0, 1, 0 ) (checker (32, 32, 32) (127, 127, 127) 10) diffuseShader
-scene = [ sphere, plane, sphere2 ]
+scene = [ sphere, plane, sphere2, sphere3 ]
 camera = defaultCamera 1
 light = PointLight (30, 30, 0) 0.2e5
 -- light = DirectionalLight ( 1, 1, 1)
