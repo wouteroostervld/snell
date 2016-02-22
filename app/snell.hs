@@ -1,6 +1,7 @@
 import Codec.Picture
 import GHC.Exts
 import Data.Maybe
+import Debug.Trace
 type Vector3 = ( Double, Double, Double )
 type Origin = Vector3
 type Normal = Vector3
@@ -18,7 +19,7 @@ type Up = Direction
 type Rays = [Direction]
 data Camera = Camera Location Rays
 data World = World Camera [Surface]
-data Light = DirectionalLight Vector3 | PointLight Vector3 Double
+data Light = DirectionalLight Vector3 Double | PointLight Vector3 Double
 
 -- _x_cam_coords count aspectratio (from -1 to 1 or -ar to ar if ar < 1)
 _x_cam_coords:: Int -> Double -> [Double]
@@ -130,10 +131,10 @@ diffuseShader l surfaces s coord location ray
     | factor < 0 = ( 0, 0, 0 )
     | shadow = ( 0, 0, 0 )
     | otherwise = ( sr, sg, sb )
-    where lv = case l of (DirectionalLight lv) -> lv
+    where lv = case l of (DirectionalLight lv _) -> lv
                          (PointLight location _) -> location -. coord
           snv = surfaceNormal s coord
-          factor = case l of (DirectionalLight _) -> ((normalize lv) *. snv)
+          factor = case l of (DirectionalLight _ i) -> i * ((normalize lv) *. snv)
                              (PointLight _ i) -> i * ((normalize lv) *. snv) / ( 4 * pi * ( absolute lv ) ^ 2 )
           sr = fromIntegral(r)*factor
           sg = fromIntegral(g)*factor
@@ -141,8 +142,14 @@ diffuseShader l surfaces s coord location ray
           ( r, g, b ) = case s of (Sphere _ _ c _) -> c coord
                                   (Plane _ _ c _ ) -> c coord
           shadow = case l of (PointLight _ _) -> not $ null $ filter (\x -> x < absolute lv) $ catMaybes $ map (intersection (Line coord_bias (normalize lv))) surfaces
-                             (DirectionalLight _) -> not $ null $  catMaybes $ map (intersection (Line coord_bias (normalize lv))) surfaces
+                             (DirectionalLight _ _) -> not $ null $ catMaybes $ map (intersection (Line coord_bias (normalize lv))) surfaces
           coord_bias = (1e-7 `sm` snv ) +. coord
+
+nullShader :: Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3
+nullShader _ _ s coord _ _
+    = (fromIntegral(r), fromIntegral(g), fromIntegral(b)) 
+    where (r, g, b) = case s of (Sphere _ _ c _) -> c coord
+                                (Plane _ _ c _ ) -> c coord
 
 reflectionShader :: Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3
 reflectionShader l surfaces s coord location ray
@@ -155,9 +162,21 @@ reflectionShader l surfaces s coord location ray
           teint = ( fromIntegral(r)/255, fromIntegral(g)/255, fromIntegral(b)/255 ) :: Vector3
           scale (a1, a2, a3) (b1, b2, b3) = (a1*b1,a2*b2,a3*b3)
 
+schlickShader :: Double -> Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3
+schlickShader n2 l surfaces s coord location ray
+    -- = trace ((show viewangle) ++ ": " ++ (show r) ++ " r0: " ++ (show r0) ++ " n2: " ++ (show n2)) (reflection +. diffusion)
+    = reflection +. diffusion
+    where snv = surfaceNormal s coord
+          viewangle = abs $ ray *. snv
+          r0 = ((n1-n2)/(n1+n2)) ** 2
+          r = r0 + ((1 - r0) * (( 1 - viewangle) ** 5))
+          n1 = 1
+          reflection = r `sm` (reflectionShader l surfaces s coord location ray)
+          diffusion = (1 - r) `sm` (diffuseShader l surfaces s coord location ray)
+
 img = map (castRay light scene camera) rays
 base = getBase img
-concrete_img = map (expQuantize 12 base) img
+concrete_img = map (expQuantize 4 base) img
 --concrete_img = map (flatQuantize base) img
 (_, expimg) = generateFoldImage (getPix) concrete_img 1280 720
 
@@ -167,14 +186,13 @@ checker black white size ( x, _, z )
     | otherwise                                        = white
 
 -- scene, light and camera
-sphere = Sphere ( 15, 0, -60) 15 (\_ -> (10, 10, 128)) reflectionShader
-sphere2 = Sphere ( -15, 0, -45) 15 (\_ -> (65, 0, 0)) diffuseShader
-sphere3 = Sphere ( 0, 15 , 45 ) 30 (\_ -> (150,150,150)) diffuseShader
+sphere = Sphere ( 15, 0, -60) 15 (\_ -> (100, 0, 100)) (schlickShader 1.6)
+sphere2 = Sphere ( -15, 0, -45) 15 (\_ -> (130, 130, 100)) (schlickShader 1.6)
 plane = Plane (0, -15, 0 ) ( 0, 1, 0 ) (checker (32, 32, 32) (127, 127, 127) 10) diffuseShader
-scene = [ sphere, plane, sphere2, sphere3 ]
+scene = [ sphere, plane, sphere2 ]
 camera = defaultCamera 1
-light = PointLight (30, 30, 0) 0.2e5
--- light = DirectionalLight ( 1, 1, 1)
+light = PointLight (30, 30, 0) 0.1e5
+-- light = DirectionalLight ( 1, 1, 1) 0.2e5
 Camera _ rays = camera
 
 main :: IO()
