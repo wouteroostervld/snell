@@ -16,3 +16,7 @@ Example using a point light and the reflection shader with a blue teint:
 Example with sheen (schlick approximation):
 
 ![Sheen](/examples/images/schlick_sheen.png)
+
+Example with Schlick- (yellow ivory) and SchlickMetal-shader (gold):
+
+![Gold](/examples/images/yellow_ivory_vs_gold.png
