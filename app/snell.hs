@@ -153,14 +153,12 @@ nullShader _ _ s coord _ _
 
 reflectionShader :: Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3
 reflectionShader l surfaces s coord location ray
-    = teint `scale` (castRay l surfaces (Camera coord_bias []) rv)
+    = (castRay l surfaces (Camera coord_bias []) rv)
     where rv = ( ray -. ( ( 2 * ( ray *. snv ) ) `sm` snv ) )
           snv = surfaceNormal s coord
           coord_bias = (1e-7 `sm` snv ) +. coord
           (r, g, b) = case s of (Sphere _ _ c _) -> c coord
                                 (Plane _ _ c _ ) -> c coord
-          teint = ( fromIntegral(r)/255, fromIntegral(g)/255, fromIntegral(b)/255 ) :: Vector3
-          scale (a1, a2, a3) (b1, b2, b3) = (a1*b1,a2*b2,a3*b3)
 
 schlickShader :: Double -> Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3
 schlickShader n2 l surfaces s coord location ray
@@ -187,7 +185,7 @@ checker black white size ( x, _, z )
 
 -- scene, light and camera
 sphere = Sphere ( 15, 0, -60) 15 (\_ -> (100, 0, 100)) (schlickShader 1.6)
-sphere2 = Sphere ( -15, 0, -45) 15 (\_ -> (130, 130, 100)) (schlickShader 1.6)
+sphere2 = Sphere ( -15, 0, -45) 15 (\_ -> (100, 100, 70)) (schlickShader 1.6)
 plane = Plane (0, -15, 0 ) ( 0, 1, 0 ) (checker (32, 32, 32) (127, 127, 127) 10) diffuseShader
 scene = [ sphere, plane, sphere2 ]
 camera = defaultCamera 1
