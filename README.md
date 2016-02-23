@@ -12,3 +12,7 @@ Example using a point light:
 Example using a point light and the reflection shader with a blue teint:
 
 ![Reflection](/examples/images/reflection.png)
+
+Example with sheen (schlick approximation):
+
+![Sheen](/examples/images/schlick_sheen.png)
