@@ -126,16 +126,16 @@ castRay l surfaces (Camera location _) ray
           (s, Just d) = head intersections
           coord = distance2Coord (Line location ray) d
 
-diffuseShader :: Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3
-diffuseShader l surfaces s coord location ray
+diffuseShader :: Double -> Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3
+diffuseShader albedo l surfaces s coord location ray
     | factor < 0 = ( 0, 0, 0 )
     | shadow = ( 0, 0, 0 )
     | otherwise = ( sr, sg, sb )
     where lv = case l of (DirectionalLight lv _) -> lv
                          (PointLight location _) -> location -. coord
           snv = surfaceNormal s coord
-          factor = case l of (DirectionalLight _ i) -> i * ((normalize lv) *. snv)
-                             (PointLight _ i) -> i * ((normalize lv) *. snv) / ( 4 * pi * ( absolute lv ) ^ 2 )
+          factor = case l of (DirectionalLight _ i) -> (albedo / pi ) * i * ((normalize lv) *. snv)
+                             (PointLight _ i) -> (albedo / pi) * i * ((normalize lv) *. snv) / ( 4 * pi * ( absolute lv ) ^ 2 )
           sr = fromIntegral(r)*factor
           sg = fromIntegral(g)*factor
           sb = fromIntegral(b)*factor
@@ -144,6 +144,8 @@ diffuseShader l surfaces s coord location ray
           shadow = case l of (PointLight _ _) -> not $ null $ filter (\x -> x < absolute lv) $ catMaybes $ map (intersection (Line coord_bias (normalize lv))) surfaces
                              (DirectionalLight _ _) -> not $ null $ catMaybes $ map (intersection (Line coord_bias (normalize lv))) surfaces
           coord_bias = (1e-7 `sm` snv ) +. coord
+
+defaultDiffuseShader = (diffuseShader pi)
 
 nullShader :: Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3
 nullShader _ _ s coord _ _
@@ -161,20 +163,47 @@ reflectionShader l surfaces s coord location ray
                                 (Plane _ _ c _ ) -> c coord
 
 schlickShader :: Double -> Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3
-schlickShader n2 l surfaces s coord location ray
+schlickShader r0 l surfaces s coord location ray
+    -- r0 is the reflectance at a view and reflectance angle of 0 degrees.
     -- = trace ((show viewangle) ++ ": " ++ (show r) ++ " r0: " ++ (show r0) ++ " n2: " ++ (show n2)) (reflection +. diffusion)
     = reflection +. diffusion
     where snv = surfaceNormal s coord
           viewangle = abs $ ray *. snv
-          r0 = ((n1-n2)/(n1+n2)) ** 2
           r = r0 + ((1 - r0) * (( 1 - viewangle) ** 5))
           n1 = 1
           reflection = r `sm` (reflectionShader l surfaces s coord location ray)
-          diffusion = (1 - r) `sm` (diffuseShader l surfaces s coord location ray)
+          diffusion = (1 - r) `sm` (defaultDiffuseShader l surfaces s coord location ray)
+
+schlickMetalShader:: Double -> Double -> Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3
+    -- from "Fresnel Term Approximations for Metals" Lazányi and Szirmay-Kalos
+schlickMetalShader n k l surfaces s coord location ray
+    -- = trace ( "viewangle:" ++  (show viewangle)  ++ " r:" ++ (show r) ) reflection +. diffusion
+    = reflection +. diffusion
+    where snv = surfaceNormal s coord
+          viewangle = abs $ ray *. snv
+          r = ((( n - 1) ** 2) + ( 4 * n * (( 1 - viewangle ) ** 5)) + (k ** 2)) / (((n + 1) ** 2) + (k ** 2))
+          reflection = r `sm` taint (getColor s coord) (reflectionShader l surfaces s coord location ray)
+          diffusion = (1 - r) `sm` (defaultDiffuseShader l surfaces s coord location ray)
+
+clamp:: Double -> Double
+clamp x = min 1 (max 0 x)
+
+getColor s coord = case s of (Sphere _ _ c _) -> c coord
+                             (Plane _ _ c _ ) -> c coord
+
+taint:: Color -> Vector3 -> Vector3
+taint color shade = (component c1 s2, component c2 s2, component c3 s3)
+    where (c1, c2, c3) = color
+          (s1, s2, s3) = shade
+          component c s = s*fromIntegral(c)/255
+
+reflectanceFromRefractionIndex n1 = r0
+          where r0 = ((n1-n2)/(n1+n2)) ** 2
+                n2 = 1 -- vaccuum (approx air)
 
 img = map (castRay light scene camera) rays
 base = getBase img
-concrete_img = map (expQuantize 4 base) img
+concrete_img = map (expQuantize 8 base) img
 --concrete_img = map (flatQuantize base) img
 (_, expimg) = generateFoldImage (getPix) concrete_img 1280 720
 
@@ -184,13 +213,13 @@ checker black white size ( x, _, z )
     | otherwise                                        = white
 
 -- scene, light and camera
-sphere = Sphere ( 15, 0, -60) 15 (\_ -> (100, 0, 100)) (schlickShader 1.6)
-sphere2 = Sphere ( -15, 0, -45) 15 (\_ -> (100, 100, 70)) (schlickShader 1.6)
-plane = Plane (0, -15, 0 ) ( 0, 1, 0 ) (checker (32, 32, 32) (127, 127, 127) 10) diffuseShader
+sphere = Sphere ( 15, 0, -60) 15 (\_ -> (255, 215, 0)) (schlickMetalShader 0.229 6.79)
+sphere2 = Sphere ( -15, 0, -45) 15 (\_ -> (255, 215, 1)) (schlickShader $ reflectanceFromRefractionIndex 1.54)
+plane = Plane (0, -15, 0 ) ( 0, 1, 0 ) (checker (32, 32, 32) (127, 127, 127) 10) defaultDiffuseShader
 scene = [ sphere, plane, sphere2 ]
 camera = defaultCamera 1
 light = PointLight (30, 30, 0) 0.1e5
--- light = DirectionalLight ( 1, 1, 1) 0.2e5
+--light = DirectionalLight ( 1, 1, 1) 0.2e5
 Camera _ rays = camera
 
 main :: IO()
