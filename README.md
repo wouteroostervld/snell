@@ -19,4 +19,4 @@ Example with sheen (schlick approximation):
 
 Example with Schlick- (yellow ivory) and SchlickMetal-shader (gold):
 
-![Gold](/examples/images/yellow_ivory_vs_gold.png
+![Gold](/examples/images/yellow_ivory_vs_gold.png)
