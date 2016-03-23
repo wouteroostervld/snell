@@ -11,8 +11,8 @@ type Location = Vector3
 type Radius = Double
 type FocalLength = Double
 type Color = V3 Int
-data Surface = Sphere Origin Radius ( Vector3 -> Color ) ( Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3 )
-             | Plane Origin Normal  ( Vector3 -> Color ) ( Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3 )
+data Surface = Sphere Origin Radius ( Vector3 -> Color ) ( Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3)
+             | Plane Origin Normal  ( Vector3 -> Color ) ( Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3)
 data Line = Line Origin Direction
 type Scene = [ Surface ]
 type Front = Direction
@@ -84,8 +84,8 @@ distance2Coord:: Line -> Double -> Vector3
 distance2Coord (Line origin direction) distance = origin +. ( distance `sm` direction )
 
 surfaceNormal:: Surface -> Location -> Vector3
-surfaceNormal (Sphere origin _ _ _) location = normalize ( location -. origin )
-surfaceNormal (Plane _ normal _ _) location = normalize normal
+surfaceNormal (Sphere origin _ _ _) hitpoint = normalize ( hitpoint -. origin )
+surfaceNormal (Plane _ normal _ _) _ = normalize normal
 
 getPix (a:as) _ _ = (as, a)
 
@@ -108,78 +108,78 @@ getBase pixels = base
           base = max (maximum rs) $ max (maximum gs) (maximum bs)
 
 castRay :: Light -> [Surface] -> Camera -> Vector3 -> Vector3
-castRay l surfaces (Camera location _) ray
+castRay l surfaces (Camera camOrigin _) ray
     | null intersections = (V3 0 0 10)
-    | otherwise = case s of (Sphere _ _ _ shader) -> shader l surfaces s coord location ray
-                            (Plane  _ _ _ shader) -> shader l surfaces s coord location ray
-    where intersections = sortWith (\(_,d) -> fromJust d ) $ filter (\(_,d) -> d /= Nothing ) $ map (\s -> (s, intersection (Line location ray) s)) surfaces
+    | otherwise = case s of (Sphere _ _ _ shader) -> shader l surfaces s hitpoint ray
+                            (Plane  _ _ _ shader) -> shader l surfaces s hitpoint ray
+    where intersections = sortWith (\(_,d) -> fromJust d ) $ filter (\(_,d) -> d /= Nothing ) $ map (\s -> (s, intersection (Line camOrigin ray) s)) surfaces
           (s, Just d) = head intersections
-          coord = distance2Coord (Line location ray) d
+          hitpoint = distance2Coord (Line camOrigin ray) d
 
-diffuseShader :: Double -> Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3
-diffuseShader albedo l surfaces s coord location ray
+diffuseShader :: Double -> Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3
+diffuseShader albedo l surfaces s hitpoint ray
     | factor < 0 = (V3 0 0 0)
     | shadow = (V3 0 0 0)
     | otherwise = (V3 sr sg sb)
     where lv = case l of (DirectionalLight lv _) -> lv
-                         (PointLight location _) -> location -. coord
-          snv = surfaceNormal s coord
+                         (PointLight location _) -> location -. hitpoint
+          snv = surfaceNormal s hitpoint
           factor = case l of (DirectionalLight _ i) -> (albedo / pi ) * i * ((normalize lv) *. snv)
                              (PointLight _ i) -> (albedo / pi) * i * ((normalize lv) *. snv) / ( 4 * pi * ( absolute lv ) ^ 2 )
           sr = fromIntegral(r)*factor
           sg = fromIntegral(g)*factor
           sb = fromIntegral(b)*factor
-          (V3 r g b) = case s of (Sphere _ _ c _) -> c coord
-                                 (Plane _ _ c _ ) -> c coord
-          shadow = case l of (PointLight _ _) -> not $ null $ filter (\x -> x < absolute lv) $ catMaybes $ map (intersection (Line coord_bias (normalize lv))) surfaces
-                             (DirectionalLight _ _) -> not $ null $ catMaybes $ map (intersection (Line coord_bias (normalize lv))) surfaces
-          coord_bias = (1e-7 `sm` snv ) +. coord
+          (V3 r g b) = case s of (Sphere _ _ c _) -> c hitpoint
+                                 (Plane _ _ c _ ) -> c hitpoint
+          shadow = case l of (PointLight _ _) -> not $ null $ filter (\x -> x < absolute lv) $ catMaybes $ map (intersection (Line hitpoint_bias (normalize lv))) surfaces
+                             (DirectionalLight _ _) -> not $ null $ catMaybes $ map (intersection (Line hitpoint_bias (normalize lv))) surfaces
+          hitpoint_bias = (1e-7 `sm` snv ) +. hitpoint
 
 defaultDiffuseShader = (diffuseShader pi)
 
-nullShader :: Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3
-nullShader _ _ s coord _ _
+nullShader :: Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3
+nullShader _ _ s hitpoint _
     = (V3 (fromIntegral(r)) (fromIntegral(g)) (fromIntegral(b)))
-    where (V3 r g b) = case s of (Sphere _ _ c _) -> c coord
-                                 (Plane _ _ c _ ) -> c coord
+    where (V3 r g b) = case s of (Sphere _ _ c _) -> c hitpoint
+                                 (Plane _ _ c _ ) -> c hitpoint
 
-reflectionShader :: Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3
-reflectionShader l surfaces s coord location ray
-    = (castRay l surfaces (Camera coord_bias []) rv)
+reflectionShader :: Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3
+reflectionShader l surfaces s hitpoint ray
+    = (castRay l surfaces (Camera hitpoint_bias []) rv)
     where rv = ( ray -. ( ( 2 * ( ray *. snv ) ) `sm` snv ) )
-          snv = surfaceNormal s coord
-          coord_bias = (1e-7 `sm` snv ) +. coord
-          (V3 r g b) = case s of (Sphere _ _ c _) -> c coord
-                                 (Plane _ _ c _ ) -> c coord
+          snv = surfaceNormal s hitpoint
+          hitpoint_bias = (1e-7 `sm` snv ) +. hitpoint
+          (V3 r g b) = case s of (Sphere _ _ c _) -> c hitpoint
+                                 (Plane _ _ c _ ) -> c hitpoint
 
-schlickShader :: Double -> Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3
-schlickShader r0 l surfaces s coord location ray
+schlickShader :: Double -> Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3
+schlickShader r0 l surfaces s hitpoint ray
     -- r0 is the reflectance at a view and reflectance angle of 0 degrees.
     -- = trace ((show viewangle) ++ ": " ++ (show r) ++ " r0: " ++ (show r0) ++ " n2: " ++ (show n2)) (reflection +. diffusion)
     = reflection +. diffusion
-    where snv = surfaceNormal s coord
+    where snv = surfaceNormal s hitpoint
           viewangle = abs $ ray *. snv
           r = r0 + ((1 - r0) * (( 1 - viewangle) ** 5))
           n1 = 1
-          reflection = r `sm` (reflectionShader l surfaces s coord location ray)
-          diffusion = (1 - r) `sm` (defaultDiffuseShader l surfaces s coord location ray)
+          reflection = r `sm` (reflectionShader l surfaces s hitpoint ray)
+          diffusion = (1 - r) `sm` (defaultDiffuseShader l surfaces s hitpoint ray)
 
-schlickMetalShader:: Double -> Double -> Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3 -> Vector3
+schlickMetalShader:: Double -> Double -> Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3
     -- from "Fresnel Term Approximations for Metals" Lazányi and Szirmay-Kalos
-schlickMetalShader n k l surfaces s coord location ray
+schlickMetalShader n k l surfaces s hitpoint ray
     -- = trace ( "viewangle:" ++  (show viewangle)  ++ " r:" ++ (show r) ) reflection +. diffusion
     = reflection +. diffusion
-    where snv = surfaceNormal s coord
+    where snv = surfaceNormal s hitpoint
           viewangle = abs $ ray *. snv
           r = ((( n - 1) ** 2) + ( 4 * n * (( 1 - viewangle ) ** 5)) + (k ** 2)) / (((n + 1) ** 2) + (k ** 2))
-          reflection = r `sm` taint (getColor s coord) (reflectionShader l surfaces s coord location ray)
-          diffusion = (1 - r) `sm` (defaultDiffuseShader l surfaces s coord location ray)
+          reflection = r `sm` taint (getColor s hitpoint) (reflectionShader l surfaces s hitpoint ray)
+          diffusion = (1 - r) `sm` (defaultDiffuseShader l surfaces s hitpoint ray)
 
 clamp:: Double -> Double
 clamp x = min 1 (max 0 x)
 
-getColor s coord = case s of (Sphere _ _ c _) -> c coord
-                             (Plane _ _ c _ ) -> c coord
+getColor s hitpoint = case s of (Sphere _ _ c _) -> c hitpoint
+                                (Plane _ _ c _ ) -> c hitpoint
 
 taint:: Color -> Vector3 -> Vector3
 taint color shade = (V3 (component c1 s2) (component c2 s2) (component c3 s3))
