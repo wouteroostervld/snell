@@ -11,8 +11,16 @@ type Location = Vector3
 type Radius = Double
 type FocalLength = Double
 type Color = V3 Int
-data Surface = Sphere Origin Radius ( Vector3 -> Color ) ( Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3)
-             | Plane Origin Normal  ( Vector3 -> Color ) ( Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3)
+data Surface = Sphere { origin :: Origin
+                      , radius :: Radius
+                      , texture :: ( Vector3 -> Color )
+                      , shader :: ( Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3)
+                      }
+             | Plane { origin :: Origin
+                     , pnormal :: Normal  
+                     , texture :: ( Vector3 -> Color )
+                     , shader :: ( Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3)
+                     }
 data Line = Line Origin Direction
 type Scene = [ Surface ]
 type Front = Direction
