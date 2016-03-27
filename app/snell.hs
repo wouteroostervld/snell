@@ -23,6 +23,8 @@ data Surface = Sphere { spherePosition :: Position
                      , planeTexture :: ( Vector3 -> Color )
                      , planeShader :: ( Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3)
                      }
+surfaceTexture Sphere{..} = sphereTexture
+surfaceTexture Plane{..} = planeTexture
 data Line = Line { lineSupport :: Position
                  , lineDirection :: Direction
                  }
@@ -146,8 +148,7 @@ diffuseShader albedo l surfaces s hitpoint ray
           sr = fromIntegral(r)*factor
           sg = fromIntegral(g)*factor
           sb = fromIntegral(b)*factor
-          (V3 r g b) = case s of Sphere{..} -> sphereTexture hitpoint
-                                 Plane{..} -> planeTexture hitpoint
+          (V3 r g b) = surfaceTexture s hitpoint
           shadow = case l of PointLight{..} -> not $ null $ filter (\x -> x < absolute lv) $ catMaybes $ map (intersection (Line hitpoint_bias (normalize lv))) surfaces
                              DirectionalLight{..} -> not $ null $ catMaybes $ map (intersection (Line hitpoint_bias (normalize lv))) surfaces
           hitpoint_bias = (1e-7 `sm` snv ) +. hitpoint
@@ -157,8 +158,7 @@ defaultDiffuseShader = (diffuseShader pi)
 nullShader :: Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3
 nullShader _ _ s hitpoint _
     = (V3 (fromIntegral(r)) (fromIntegral(g)) (fromIntegral(b)))
-    where (V3 r g b) = case s of Sphere{..} -> sphereTexture hitpoint
-                                 Plane{..} -> planeTexture hitpoint
+    where (V3 r g b) = surfaceTexture s hitpoint
 
 reflectionShader :: Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3
 reflectionShader l surfaces s hitpoint ray
@@ -166,8 +166,7 @@ reflectionShader l surfaces s hitpoint ray
     where rv = ( ray -. ( ( 2 * ( ray *. snv ) ) `sm` snv ) )
           snv = surfaceNormal s hitpoint
           hitpoint_bias = (1e-7 `sm` snv ) +. hitpoint
-          (V3 r g b) = case s of Sphere{..} -> sphereTexture hitpoint
-                                 Plane{..} -> planeTexture hitpoint
+          (V3 r g b) = surfaceTexture s hitpoint
 
 schlickShader :: Double -> Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3
 schlickShader r0 l surfaces s hitpoint ray
@@ -189,14 +188,11 @@ schlickMetalShader n k l surfaces s hitpoint ray
     where snv = surfaceNormal s hitpoint
           viewangle = abs $ ray *. snv
           r = ((( n - 1) ** 2) + ( 4 * n * (( 1 - viewangle ) ** 5)) + (k ** 2)) / (((n + 1) ** 2) + (k ** 2))
-          reflection = r `sm` taint (getColor s hitpoint) (reflectionShader l surfaces s hitpoint ray)
+          reflection = r `sm` taint (surfaceTexture s hitpoint) (reflectionShader l surfaces s hitpoint ray)
           diffusion = (1 - r) `sm` (defaultDiffuseShader l surfaces s hitpoint ray)
 
 clamp:: Double -> Double
 clamp x = min 1 (max 0 x)
-
-getColor s hitpoint = case s of Sphere{..} -> sphereTexture hitpoint
-                                Plane{..} -> planeTexture hitpoint
 
 taint:: Color -> Vector3 -> Vector3
 taint color shade = (V3 (component c1 s2) (component c2 s2) (component c3 s3))
