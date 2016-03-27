@@ -166,7 +166,6 @@ reflectionShader l surfaces s hitpoint ray
     where rv = ( ray -. ( ( 2 * ( ray *. snv ) ) `sm` snv ) )
           snv = surfaceNormal s hitpoint
           hitpoint_bias = (1e-7 `sm` snv ) +. hitpoint
-          (V3 r g b) = surfaceTexture s hitpoint
 
 schlickShader :: Double -> Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3
 schlickShader r0 l surfaces s hitpoint ray
@@ -215,9 +214,12 @@ checker black white size (V3 x _ z)
     | ( floor(x/size) + floor(z/size) ) `mod` 2 == 0 = black
     | otherwise                                      = white
 
+plainColor:: Color -> Vector3 -> Color
+plainColor x _ = x
+
 -- scene, light and camera
-sphere = Sphere (V3  15 0 (-60)) 15 (\_ -> (V3 255 215 0)) (schlickMetalShader 0.229 6.79)
-sphere2 = Sphere (V3 (-15) 0 (-45)) 15 (\_ -> (V3 255 215 1)) (schlickShader $ reflectanceFromRefractionIndex 1.54)
+sphere = Sphere (V3  15 0 (-60)) 15 (plainColor (V3 255 215 0)) (schlickMetalShader 0.229 6.79)
+sphere2 = Sphere (V3 (-15) 0 (-45)) 15 (plainColor (V3 255 215 1)) (schlickShader $ reflectanceFromRefractionIndex 1.54)
 plane = Plane (V3 0 (-15) 0 ) (V3 0 1 0 ) (checker (V3 32 32 32) (V3 127 127 127) 10) defaultDiffuseShader
 scene = [ sphere, plane, sphere2 ]
 camera = defaultCamera 1
