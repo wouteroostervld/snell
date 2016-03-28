@@ -5,6 +5,7 @@ import Data.Maybe
 import Debug.Trace
 import Linear
 type Vector3 = V3 Double
+type Vertex = Vector3
 type Origin = Vector3
 type Position = Vector3
 type Normal = Vector3
@@ -13,6 +14,10 @@ type Location = Vector3
 type Radius = Double
 type FocalLength = Double
 type Color = V3 Int
+data Triangle = Triangle { triangleA :: Vertex
+                         , triangleB :: Vertex
+                         , triangleC :: Vertex
+                         }
 data Surface = Sphere { spherePosition :: Position
                       , sphereRadius :: Radius
                       , sphereTexture :: ( Vector3 -> Color )
@@ -23,8 +28,14 @@ data Surface = Sphere { spherePosition :: Position
                      , planeTexture :: ( Vector3 -> Color )
                      , planeShader :: ( Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3)
                      }
+             | Mesh { meshPosition :: Position
+                    , meshTriangles :: [Triangle]
+                    , meshTexture :: ( Vector3 -> Color )
+                    , meshShader :: ( Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3) 
+                    }
 surfaceTexture Sphere{..} = sphereTexture
 surfaceTexture Plane{..} = planeTexture
+surfaceTexture Mesh{..} = meshTexture
 data Line = Line { lineSupport :: Position
                  , lineDirection :: Direction
                  }
