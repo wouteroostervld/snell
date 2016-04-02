@@ -11,7 +11,7 @@ pictures. The 'pbrt' of haskell ( https://github.com/mmp ).
 Things I intent to implement. Pull requests welcome.
 
 - [ ] Scene definition language (aeson? parsec?)
-- [ ] Scaling, Rotation and Translation ( matrices/quarternions )
+- [ ] Scaling, Rotation and Translation ( matrices/quaternions )
 - [ ] physically based shading (monte carlo sampling, gloss)
 - [ ] reading RAW-vertex data
 - [ ] reading Stanford PLY-vertex data
