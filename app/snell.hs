@@ -9,6 +9,9 @@ import GHC.Generics
 import Data.Maybe
 import Debug.Trace
 import Linear
+import System.Environment
+import System.Exit
+import Control.Monad
 
 type Vector3 = V3 Double
 type Vertex = Vector3
@@ -280,4 +283,8 @@ Camera _ rays = camera
 
 main :: IO()
 main = do
-    writePng "here.png" expimg
+  args <- getArgs
+  when (length args > 1) $ die "Too many args."
+  let fileName = case args of [] -> "here.png"
+                              (fileName:[]) -> fileName
+  writePng fileName expimg
