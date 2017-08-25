@@ -1,11 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE OverloadedStrings #-}
-
 import Codec.Picture
 import GHC.Exts
-import GHC.Generics
 import Data.Maybe
 import Debug.Trace
 import Linear
@@ -26,54 +21,40 @@ type Color = V3 Int
 data Triangle = Triangle { triangleA :: Vertex
                          , triangleB :: Vertex
                          , triangleC :: Vertex
-                         } deriving (Show, Generic)
+                         }
 data Surface = Sphere { spherePosition :: Position
                       , sphereRadius :: Radius
-                      , sphereTexture :: Texture
-                      , sphereShader :: Shader
+                      , sphereTexture :: ( Vector3 -> Color )
+                      , sphereShader :: ( Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3)
                       }
              | Plane { planePosition :: Position
                      , planeNormal :: Normal
-                     , planeTexture :: Texture
-                     , planeShader :: Shader
+                     , planeTexture :: ( Vector3 -> Color )
+                     , planeShader :: ( Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3)
                      }
              | Mesh { meshPosition :: Position
                     , meshTriangles :: [Triangle]
-                    , meshTexture :: Texture
-                    , meshShader :: Shader
-                    } deriving (Show, Generic)
-
-textureType Sphere{..} = sphereTexture
-textureType Plane{..} = planeTexture
-textureType Mesh{..} = meshTexture
-
-surfaceTexture surface = textFunc (textureType surface)
-                       where
-                            textFunc PlainTexture{..} = plainColor ptColor
-                            textFunc Checker{..} = checker checkerBlack checkerWhite checkerSize
-
-data Texture = PlainTexture { ptColor :: Color }
-             | Checker { checkerBlack :: Color
-                       , checkerWhite :: Color
-                       , checkerSize :: Double } deriving (Show, Generic)
-
+                    , meshTexture :: ( Vector3 -> Color )
+                    , meshShader :: ( Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3) 
+                    }
+surfaceTexture Sphere{..} = sphereTexture
+surfaceTexture Plane{..} = planeTexture
+surfaceTexture Mesh{..} = meshTexture
 data Line = Line { lineSupport :: Position
                  , lineDirection :: Direction
-                 } deriving (Show, Generic)
+                 }
 type Scene = [ Surface ]
 type Front = Direction
 type Up = Direction
 type Rays = [Direction]
 data Camera = Camera Location Rays
-                deriving (Show, Generic)
 data World = World Camera [Surface]
-                deriving (Show, Generic)
 data Light = DirectionalLight { dlDirection :: Direction
                               , dlIntensity :: Double
                               }
            | PointLight { plPosition :: Position
                         , plIntensity :: Double
-                        } deriving (Show, Generic)
+                        }
 
 -- _x_cam_coords count aspectratio (from -1 to 1 or -ar to ar if ar < 1)
 _x_cam_coords:: Int -> Double -> [Double]
@@ -163,30 +144,11 @@ getBase pixels = base
 castRay :: Light -> [Surface] -> Camera -> Vector3 -> Vector3
 castRay l surfaces (Camera camOrigin _) ray
     | null intersections = (V3 0 0 10)
-    | otherwise = (surfaceShader s) l surfaces s hitpoint ray
+    | otherwise = case s of Sphere{..} -> sphereShader l surfaces s hitpoint ray
+                            Plane{..} -> planeShader l surfaces s hitpoint ray
     where intersections = sortWith (\(_,d) -> fromJust d ) $ filter (\(_,d) -> d /= Nothing ) $ map (\s -> (s, intersection (Line camOrigin ray) s)) surfaces
           (s, Just d) = head intersections
           hitpoint = distance2Coord (Line camOrigin ray) d
-
-data Shader = DiffuseShader { dsEff :: Double }
-            | NullShader
-            | SchlickShader { ssReflectance :: Double }
-            | SchlickMetalShader { smsRefractionIndex :: ( Double, Double ) }
-            | ReflectionShader
-                deriving (Show, Generic)
-
-shaderType Plane{..} = planeShader
-shaderType Sphere{..} = sphereShader
-shaderType Mesh{..} = meshShader
-
-surfaceShader surface = surfaceFunc (shaderType surface)
-                        where
-                            surfaceFunc DiffuseShader{..} = diffuseShader dsEff
-                            surfaceFunc NullShader = nullShader
-                            surfaceFunc SchlickShader{..} = schlickShader ssReflectance
-                            surfaceFunc SchlickMetalShader{..} = schlickMetalShader (fst smsRefractionIndex)
-                                                                                    (snd smsRefractionIndex)
-                            surfaceFunc ReflectionShader = reflectionShader
 
 diffuseShader :: Double -> Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3
 diffuseShader albedo l surfaces s hitpoint ray
@@ -201,13 +163,12 @@ diffuseShader albedo l surfaces s hitpoint ray
           sr = fromIntegral(r)*factor
           sg = fromIntegral(g)*factor
           sb = fromIntegral(b)*factor
-          texture = surfaceTexture s
           (V3 r g b) = surfaceTexture s hitpoint
           shadow = case l of PointLight{..} -> not $ null $ filter (\x -> x < absolute lv) $ catMaybes $ map (intersection (Line hitpoint_bias (normalize lv))) surfaces
                              DirectionalLight{..} -> not $ null $ catMaybes $ map (intersection (Line hitpoint_bias (normalize lv))) surfaces
           hitpoint_bias = (1e-7 `sm` snv ) +. hitpoint
 
-defaultDiffuseShader = (DiffuseShader 1.0)
+defaultDiffuseShader = (diffuseShader pi)
 
 nullShader :: Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3
 nullShader _ _ s hitpoint _
@@ -231,7 +192,7 @@ schlickShader r0 l surfaces s hitpoint ray
           r = r0 + ((1 - r0) * (( 1 - viewangle) ** 5))
           n1 = 1
           reflection = r `sm` (reflectionShader l surfaces s hitpoint ray)
-          diffusion = (1 - r) `sm` (diffuseShader 1.0 l surfaces s hitpoint ray)
+          diffusion = (1 - r) `sm` (defaultDiffuseShader l surfaces s hitpoint ray)
 
 schlickMetalShader:: Double -> Double -> Light -> [Surface] -> Surface -> Vector3 -> Vector3 -> Vector3
     -- from "Fresnel Term Approximations for Metals" Lazányi and Szirmay-Kalos
@@ -242,7 +203,7 @@ schlickMetalShader n k l surfaces s hitpoint ray
           viewangle = abs $ ray *. snv
           r = ((( n - 1) ** 2) + ( 4 * n * (( 1 - viewangle ) ** 5)) + (k ** 2)) / (((n + 1) ** 2) + (k ** 2))
           reflection = r `sm` taint (surfaceTexture s hitpoint) (reflectionShader l surfaces s hitpoint ray)
-          diffusion = (1 - r) `sm` (diffuseShader 1.0 l surfaces s hitpoint ray)
+          diffusion = (1 - r) `sm` (defaultDiffuseShader l surfaces s hitpoint ray)
 
 clamp:: Double -> Double
 clamp x = min 1 (max 0 x)
@@ -272,9 +233,9 @@ plainColor:: Color -> Vector3 -> Color
 plainColor x _ = x
 
 -- scene, light and camera
-sphere = Sphere (V3  15 0 (-60)) 15 (PlainTexture (V3 255 215 0)) (SchlickMetalShader (0.229, 6.79))
-sphere2 = Sphere (V3 (-15) 0 (-45)) 15 (PlainTexture (V3 255 215 1)) (SchlickShader $ reflectanceFromRefractionIndex 1.54)
-plane = Plane (V3 0 (-15) 0 ) (V3 0 1 0 ) (Checker (V3 32 32 32) (V3 127 127 127) 10) defaultDiffuseShader
+sphere = Sphere (V3  15 0 (-60)) 15 (plainColor (V3 255 215 0)) (schlickMetalShader 0.229 6.79)
+sphere2 = Sphere (V3 (-15) 0 (-45)) 15 (plainColor (V3 255 215 1)) (schlickShader $ reflectanceFromRefractionIndex 1.54)
+plane = Plane (V3 0 (-15) 0 ) (V3 0 1 0 ) (checker (V3 32 32 32) (V3 127 127 127) 10) defaultDiffuseShader
 scene = [ sphere, plane, sphere2 ]
 camera = defaultCamera 1
 light = PointLight (V3 30 30 0) 0.1e5
