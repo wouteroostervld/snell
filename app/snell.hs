@@ -25,17 +25,17 @@ data Triangle = Triangle { triangleA :: Vertex
 data Surface = Sphere { spherePosition :: Position
                       , sphereRadius :: Radius
                       , sphereTexture :: ( Vector3 -> Color )
-                      , sphereShader :: ( World -> Surface -> Vector3 -> Vector3 -> Vector3)
+                      , sphereShader :: ( Surface -> World -> Vector3 -> Vector3 -> Vector3)
                       }
              | Plane { planePosition :: Position
                      , planeNormal :: Normal
                      , planeTexture :: ( Vector3 -> Color )
-                     , planeShader :: ( World -> Surface -> Vector3 -> Vector3 -> Vector3)
+                     , planeShader :: ( Surface -> World -> Vector3 -> Vector3 -> Vector3)
                      }
              | Mesh { meshPosition :: Position
                     , meshTriangles :: [Triangle]
                     , meshTexture :: ( Vector3 -> Color )
-                    , meshShader :: ( World -> Surface -> Vector3 -> Vector3 -> Vector3)
+                    , meshShader :: ( Surface -> World -> Vector3 -> Vector3 -> Vector3)
                     }
 surfaceTexture Sphere{..} = sphereTexture
 surfaceTexture Plane{..} = planeTexture
@@ -146,15 +146,15 @@ getBase pixels = base
 castRay :: World -> Vector3 -> Vector3
 castRay w@World{..} ray
     | null intersections = (V3 0 0 10)
-    | otherwise = case s of Sphere{..} -> sphereShader w s hitpoint ray
-                            Plane{..} -> planeShader w s hitpoint ray
+    | otherwise = case s of Sphere{..} -> sphereShader s w hitpoint ray
+                            Plane{..} -> planeShader s w hitpoint ray
     where intersections = sortWith (\(_,d) -> fromJust d ) $ filter (\(_,d) -> d /= Nothing ) $ map (\s -> (s, intersection (Line camOrigin ray) s)) worldSurfaces
           (s, Just d) = head intersections
           hitpoint = distance2Coord (Line camOrigin ray) d
           (Camera camOrigin _) = worldCamera
 
-diffuseShader :: Double -> World -> Surface -> Vector3 -> Vector3 -> Vector3
-diffuseShader albedo World{..} s hitpoint ray
+diffuseShader :: Double -> Surface -> World -> Vector3 -> Vector3 -> Vector3
+diffuseShader albedo s World{..} hitpoint ray
     | factor < 0 = (V3 0 0 0)
     | shadow = (V3 0 0 0)
     | otherwise = (V3 sr sg sb)
@@ -173,38 +173,38 @@ diffuseShader albedo World{..} s hitpoint ray
 
 defaultDiffuseShader = (diffuseShader pi)
 
-nullShader :: World -> Surface -> Vector3 -> Vector3 -> Vector3
-nullShader _ s hitpoint _
+nullShader :: Surface -> World -> Vector3 -> Vector3 -> Vector3
+nullShader s _ hitpoint _
     = (V3 (fromIntegral(r)) (fromIntegral(g)) (fromIntegral(b)))
     where (V3 r g b) = surfaceTexture s hitpoint
 
-reflectionShader :: World -> Surface -> Vector3 -> Vector3 -> Vector3
-reflectionShader w@World{..} s hitpoint ray
+reflectionShader :: Surface -> World -> Vector3 -> Vector3 -> Vector3
+reflectionShader s w@World{..} hitpoint ray
     = (castRay (World (Camera hitpoint_bias []) worldLight worldSurfaces) rv)
     where rv = ( ray -. ( ( 2 * ( ray *. snv ) ) `sm` snv ) )
           snv = surfaceNormal s hitpoint
           hitpoint_bias = (1e-7 `sm` snv ) +. hitpoint
 
-schlickShader :: Double -> World -> Surface -> Vector3 -> Vector3 -> Vector3
-schlickShader r0 w@World{..} s hitpoint ray
+schlickShader :: Double -> Surface -> World -> Vector3 -> Vector3 -> Vector3
+schlickShader r0 s w@World{..} hitpoint ray
     = reflection +. diffusion
     where snv = surfaceNormal s hitpoint
           viewangle = abs $ ray *. snv
           r = r0 + ((1 - r0) * (( 1 - viewangle) ** 5))
           n1 = 1
-          reflection = r `sm` (reflectionShader w s hitpoint ray)
-          diffusion = (1 - r) `sm` (defaultDiffuseShader w s hitpoint ray)
+          reflection = r `sm` (reflectionShader s w hitpoint ray)
+          diffusion = (1 - r) `sm` (defaultDiffuseShader s w hitpoint ray)
 
-schlickMetalShader:: Double -> Double -> World -> Surface -> Vector3 -> Vector3 -> Vector3
+schlickMetalShader:: Double -> Double -> Surface -> World -> Vector3 -> Vector3 -> Vector3
     -- from "Fresnel Term Approximations for Metals" Lazányi and Szirmay-Kalos
-schlickMetalShader n k w@World{..} s hitpoint ray
+schlickMetalShader n k s w@World{..} hitpoint ray
     -- = trace ( "viewangle:" ++  (show viewangle)  ++ " r:" ++ (show r) ) reflection +. diffusion
     = reflection +. diffusion
     where snv = surfaceNormal s hitpoint
           viewangle = abs $ ray *. snv
           r = ((( n - 1) ** 2) + ( 4 * n * (( 1 - viewangle ) ** 5)) + (k ** 2)) / (((n + 1) ** 2) + (k ** 2))
-          reflection = r `sm` taint (surfaceTexture s hitpoint) (reflectionShader w s hitpoint ray)
-          diffusion = (1 - r) `sm` (defaultDiffuseShader w s hitpoint ray)
+          reflection = r `sm` taint (surfaceTexture s hitpoint) (reflectionShader s w hitpoint ray)
+          diffusion = (1 - r) `sm` (defaultDiffuseShader s w hitpoint ray)
 
 clamp:: Double -> Double
 clamp x = min 1 (max 0 x)
