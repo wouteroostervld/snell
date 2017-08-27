@@ -14,7 +14,6 @@ type Origin = Vector3
 type Position = Vector3
 type Normal = Vector3
 type Direction = Vector3
-type Location = Vector3
 type Radius = Double
 type FocalLength = Double
 type ColorF = Vector3
@@ -49,7 +48,7 @@ type Scene = [ Surface ]
 type Front = Direction
 type Up = Direction
 type Rays = [Direction]
-data Camera = Camera Location Rays
+data Camera = Camera Position Rays
 data World = World { worldCamera :: Camera
                    , worldLight :: Light
                    , worldSurfaces :: [Surface] }
