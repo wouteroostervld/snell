@@ -17,29 +17,31 @@ type Direction = Vector3
 type Location = Vector3
 type Radius = Double
 type FocalLength = Double
+type ColorF = Vector3
 type Color = V3 Int
+type Ray = Vector3
+type Hitpoint = Vector3
+
+
 data Triangle = Triangle { triangleA :: Vertex
                          , triangleB :: Vertex
                          , triangleC :: Vertex
                          }
-data Surface = Sphere { spherePosition :: Position
-                      , sphereRadius :: Radius
-                      , sphereTexture :: ( Vector3 -> Color )
-                      , sphereShader :: ( Surface -> World -> Vector3 -> Vector3 -> Vector3)
-                      }
-             | Plane { planePosition :: Position
-                     , planeNormal :: Normal
-                     , planeTexture :: ( Vector3 -> Color )
-                     , planeShader :: ( Surface -> World -> Vector3 -> Vector3 -> Vector3)
+data Surface = Surface { surfaceIntersection :: ( Line -> Maybe Double )
+                       , surfaceTexture :: ( Vector3 -> Color )
+                       , surfaceShader :: ( World -> Hitpoint -> Normal -> Color -> Ray -> ColorF)
+                       , surfaceNormal :: ( Hitpoint -> Normal )
+                       }
+data Sphere = Sphere { spherePosition :: Position
+                     , sphereRadius :: Radius
                      }
-             | Mesh { meshPosition :: Position
-                    , meshTriangles :: [Triangle]
-                    , meshTexture :: ( Vector3 -> Color )
-                    , meshShader :: ( Surface -> World -> Vector3 -> Vector3 -> Vector3)
-                    }
-surfaceTexture Sphere{..} = sphereTexture
-surfaceTexture Plane{..} = planeTexture
-surfaceTexture Mesh{..} = meshTexture
+data Plane = Plane { planePosition :: Position
+                   , planeNormal :: Normal
+                   }
+data Mesh = Mesh { meshPosition :: Position
+                 , meshTriangles :: [Triangle]
+                 }
+
 data Line = Line { lineSupport :: Position
                  , lineDirection :: Direction
                  }
@@ -87,7 +89,7 @@ absolute = norm
 
 (+.) = (+)
 
-sphereIntersectionFormula:: Vector3 -> Vector3 -> Surface -> Vector3
+sphereIntersectionFormula:: Vector3 -> Vector3 -> Sphere -> Vector3
 sphereIntersectionFormula support direction Sphere{..} = (V3 a b c)
     where a = 1
           b = 2 * ( direction *. ( support -. spherePosition ))
@@ -96,8 +98,8 @@ sphereIntersectionFormula support direction Sphere{..} = (V3 a b c)
 calcD:: Vector3 -> Double
 calcD (V3 a b c) = (b ** 2) - ( 4 * a * c )
 
-intersection:: Line -> Surface -> Maybe Double
-intersection Line{..} sphere@Sphere{..}
+sphereIntersection:: Sphere -> Line -> Maybe Double
+sphereIntersection sphere@Sphere{..} Line{..}
     | d < 0 = Nothing
     | x1 < 0 && x2 < 0 = Nothing
     | otherwise = Just $ min x1 x2
@@ -106,7 +108,8 @@ intersection Line{..} sphere@Sphere{..}
           x1 = ((-b) + (d ** (1/2))) / (2*a)
           x2 = ((-b) - (d ** (1/2))) / (2*a)
 
-intersection Line{..} Plane{..}
+planeIntersection:: Plane -> Line -> Maybe Double
+planeIntersection Plane{..} Line{..}
     | (incline /= 0) && (d > 0) = Just d
     | otherwise = Nothing
     where incline = lineDirection *. planeNormal
@@ -119,9 +122,7 @@ sm = (*^)
 distance2Coord:: Line -> Double -> Vector3
 distance2Coord Line{..} distance = lineSupport +. ( distance `sm` lineDirection )
 
-surfaceNormal:: Surface -> Location -> Vector3
-surfaceNormal Sphere{..} hitpoint = normalize ( hitpoint -. spherePosition )
-surfaceNormal Plane{..} _ = normalize planeNormal
+sphereSurfaceNormal Sphere{..} hitpoint = normalize ( hitpoint -. spherePosition )
 
 getPix (a:as) _ _ = (as, a)
 
@@ -146,65 +147,62 @@ getBase pixels = base
 castRay :: World -> Vector3 -> Vector3
 castRay w@World{..} ray
     | null intersections = (V3 0 0 10)
-    | otherwise = case s of Sphere{..} -> sphereShader s w hitpoint ray
-                            Plane{..} -> planeShader s w hitpoint ray
-    where intersections = sortWith (\(_,d) -> fromJust d ) $ filter (\(_,d) -> d /= Nothing ) $ map (\s -> (s, intersection (Line camOrigin ray) s)) worldSurfaces
+    | otherwise = surfaceShader s w hitpoint snv color ray
+    where intersections = sortWith (\(_,d) -> fromJust d ) $ filter (\(_,d) -> d /= Nothing ) $ map (\s -> (s, surfaceIntersection s (Line camOrigin ray))) worldSurfaces
           (s, Just d) = head intersections
           hitpoint = distance2Coord (Line camOrigin ray) d
+          snv = surfaceNormal s hitpoint
           (Camera camOrigin _) = worldCamera
+          color = surfaceTexture s hitpoint
 
-diffuseShader :: Double -> Surface -> World -> Vector3 -> Vector3 -> Vector3
-diffuseShader albedo s World{..} hitpoint ray
+diffuseShader :: Double -> World -> Hitpoint -> Normal -> Color -> Ray -> ColorF
+diffuseShader albedo World{..} hitpoint snv color ray
     | factor < 0 = (V3 0 0 0)
     | shadow = (V3 0 0 0)
     | otherwise = (V3 sr sg sb)
     where lv = case worldLight of DirectionalLight{..} -> dlDirection
                                   PointLight{..} -> plPosition -. hitpoint
-          snv = surfaceNormal s hitpoint
           factor = case worldLight of (DirectionalLight _ i) -> (albedo / pi ) * i * ((normalize lv) *. snv)
                                       (PointLight _ i) -> (albedo / pi) * i * ((normalize lv) *. snv) / ( 4 * pi * ( absolute lv ) ^ 2 )
           sr = fromIntegral(r)*factor
           sg = fromIntegral(g)*factor
           sb = fromIntegral(b)*factor
-          (V3 r g b) = surfaceTexture s hitpoint
-          shadow = case worldLight of PointLight{..} -> not $ null $ filter (\x -> x < absolute lv) $ catMaybes $ map (intersection (Line hitpoint_bias (normalize lv))) worldSurfaces
-                                      DirectionalLight{..} -> not $ null $ catMaybes $ map (intersection (Line hitpoint_bias (normalize lv))) worldSurfaces
+          (V3 r g b) = color
+          shadow = case worldLight of PointLight{..} -> not $ null $ filter (\x -> x < absolute lv) $ catMaybes $ map (\s -> surfaceIntersection s (Line hitpoint_bias (normalize lv))) worldSurfaces
+                                      DirectionalLight{..} -> not $ null $ catMaybes $ map (\s -> surfaceIntersection s (Line hitpoint_bias (normalize lv))) worldSurfaces
           hitpoint_bias = (1e-7 `sm` snv ) +. hitpoint
 
 defaultDiffuseShader = (diffuseShader pi)
 
-nullShader :: Surface -> World -> Vector3 -> Vector3 -> Vector3
-nullShader s _ hitpoint _
+nullShader :: World -> Hitpoint -> Normal -> Color -> Ray -> ColorF
+nullShader _ hitpoint _ color _
     = (V3 (fromIntegral(r)) (fromIntegral(g)) (fromIntegral(b)))
-    where (V3 r g b) = surfaceTexture s hitpoint
+    where (V3 r g b) = color
 
-reflectionShader :: Surface -> World -> Vector3 -> Vector3 -> Vector3
-reflectionShader s w@World{..} hitpoint ray
+reflectionShader :: World -> Hitpoint -> Normal -> Color -> Ray -> ColorF
+reflectionShader w@World{..} hitpoint snv _ ray
     = (castRay (World (Camera hitpoint_bias []) worldLight worldSurfaces) rv)
     where rv = ( ray -. ( ( 2 * ( ray *. snv ) ) `sm` snv ) )
-          snv = surfaceNormal s hitpoint
           hitpoint_bias = (1e-7 `sm` snv ) +. hitpoint
 
-schlickShader :: Double -> Surface -> World -> Vector3 -> Vector3 -> Vector3
-schlickShader r0 s w@World{..} hitpoint ray
+schlickShader :: Double -> World -> Hitpoint -> Normal -> Color -> Ray -> ColorF
+schlickShader r0 w@World{..} hitpoint snv color ray
     = reflection +. diffusion
-    where snv = surfaceNormal s hitpoint
-          viewangle = abs $ ray *. snv
+    where viewangle = abs $ ray *. snv
           r = r0 + ((1 - r0) * (( 1 - viewangle) ** 5))
           n1 = 1
-          reflection = r `sm` (reflectionShader s w hitpoint ray)
-          diffusion = (1 - r) `sm` (defaultDiffuseShader s w hitpoint ray)
+          reflection = r `sm` (reflectionShader w hitpoint snv color ray)
+          diffusion = (1 - r) `sm` (defaultDiffuseShader w hitpoint snv color ray)
 
-schlickMetalShader:: Double -> Double -> Surface -> World -> Vector3 -> Vector3 -> Vector3
+schlickMetalShader:: Double -> Double -> World -> Hitpoint -> Normal -> Color -> Ray -> ColorF
     -- from "Fresnel Term Approximations for Metals" Lazányi and Szirmay-Kalos
-schlickMetalShader n k s w@World{..} hitpoint ray
+schlickMetalShader n k w@World{..} hitpoint snv color ray
     -- = trace ( "viewangle:" ++  (show viewangle)  ++ " r:" ++ (show r) ) reflection +. diffusion
     = reflection +. diffusion
-    where snv = surfaceNormal s hitpoint
-          viewangle = abs $ ray *. snv
+    where viewangle = abs $ ray *. snv
           r = ((( n - 1) ** 2) + ( 4 * n * (( 1 - viewangle ) ** 5)) + (k ** 2)) / (((n + 1) ** 2) + (k ** 2))
-          reflection = r `sm` taint (surfaceTexture s hitpoint) (reflectionShader s w hitpoint ray)
-          diffusion = (1 - r) `sm` (defaultDiffuseShader s w hitpoint ray)
+          reflection = r `sm` taint color (reflectionShader w hitpoint snv color ray)
+          diffusion = (1 - r) `sm` (defaultDiffuseShader w hitpoint snv color ray)
 
 clamp:: Double -> Double
 clamp x = min 1 (max 0 x)
@@ -235,10 +233,24 @@ plainColor:: Color -> Vector3 -> Color
 plainColor x _ = x
 
 -- scene, light and camera
-sphere = Sphere (V3  15 0 (-60)) 15 (plainColor (V3 255 215 0)) (schlickMetalShader 0.229 6.79)
-sphere2 = Sphere (V3 (-15) 0 (-45)) 15 (plainColor (V3 255 215 1)) (schlickShader $ reflectanceFromRefractionIndex 1.54)
-plane = Plane (V3 0 (-15) 0 ) (V3 0 1 0 ) (checker (V3 32 32 32) (V3 127 127 127) 10) defaultDiffuseShader
-scene = [ sphere, plane, sphere2 ]
+sphereSurface :: Vector3 -> Double -> ( Hitpoint -> Color ) -> ( World -> Hitpoint -> Normal -> Color -> Ray -> ColorF) -> Surface
+sphereSurface position radius texture shader
+  = Surface (sphereIntersection sphere)
+            (texture)
+            (shader)
+            (sphereSurfaceNormal sphere)
+  where sphere = Sphere position radius
+sphere2 = sphereSurface (V3 (-15) 0 (-45)) 15 (plainColor (V3 255 215 1)) (schlickShader $ reflectanceFromRefractionIndex 1.54)
+
+planeSurface position normal texture shader
+  = Surface (planeIntersection plane)
+            (texture)
+            (shader)
+            (\_ -> normal)
+  where plane = Plane position normal
+
+plane = planeSurface (V3 0 (-15) 0 ) (V3 0 1 0 ) (checker (V3 32 32 32) (V3 127 127 127) 10) defaultDiffuseShader
+scene = [ plane, sphere2 ]
 camera = defaultCamera 1
 light = PointLight (V3 30 30 0) 0.1e5
 --light = DirectionalLight (V3  1 1 1) 0.2e5
