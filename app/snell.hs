@@ -178,9 +178,13 @@ nullShader _ hitpoint _ color _
     = (V3 (fromIntegral(r)) (fromIntegral(g)) (fromIntegral(b)))
     where (V3 r g b) = color
 
-reflectionShader :: World -> Hitpoint -> Normal -> Color -> Ray -> ColorF
-reflectionShader w@World{..} hitpoint snv _ ray
-    = (castRay (World (Camera hitpoint_bias []) worldLight worldSurfaces) rv)
+
+
+perfectReflectionShader = reflectionShader (V3 1.0 1.0 1.0)
+
+reflectionShader :: ColorF -> World -> Hitpoint -> Normal -> Color -> Ray -> ColorF
+reflectionShader reflectance w@World{..} hitpoint snv _ ray
+    = reflectance * (castRay (World (Camera hitpoint_bias []) worldLight worldSurfaces) rv)
     where rv = ( ray -. ( ( 2 * ( ray *. snv ) ) `sm` snv ) )
           hitpoint_bias = (1e-7 `sm` snv ) +. hitpoint
 
@@ -190,7 +194,7 @@ schlickShader r0 w@World{..} hitpoint snv color ray
     where viewangle = abs $ ray *. snv
           r = r0 + ((1 - r0) * (( 1 - viewangle) ** 5))
           n1 = 1
-          reflection = r `sm` (reflectionShader w hitpoint snv color ray)
+          reflection = r `sm` (perfectReflectionShader w hitpoint snv color ray)
           diffusion = (1 - r) `sm` (defaultDiffuseShader w hitpoint snv color ray)
 
 schlickMetalShader:: Double -> Double -> World -> Hitpoint -> Normal -> Color -> Ray -> ColorF
@@ -200,7 +204,7 @@ schlickMetalShader n k w@World{..} hitpoint snv color ray
     = reflection +. diffusion
     where viewangle = abs $ ray *. snv
           r = ((( n - 1) ** 2) + ( 4 * n * (( 1 - viewangle ) ** 5)) + (k ** 2)) / (((n + 1) ** 2) + (k ** 2))
-          reflection = r `sm` taint color (reflectionShader w hitpoint snv color ray)
+          reflection = r `sm` taint color (perfectReflectionShader w hitpoint snv color ray)
           diffusion = (1 - r) `sm` (defaultDiffuseShader w hitpoint snv color ray)
 
 clamp:: Double -> Double
@@ -239,7 +243,10 @@ sphereSurface position radius texture shader
             (shader)
             (sphereSurfaceNormal sphere)
   where sphere = Sphere position radius
+sphere1 = sphereSurface (V3 (15) 30 (-90)) 45(plainColor (V3 255 215 1)) (reflectionShader (V3 0 1 0))
 sphere2 = sphereSurface (V3 (-15) 0 (-45)) 15 (plainColor (V3 255 215 1)) (schlickShader $ reflectanceFromRefractionIndex 1.54)
+sphere3 = sphereSurface (V3 (-15) 0 (-150)) 15 (plainColor (V3 0 255 255)) (schlickShader $ reflectanceFromRefractionIndex 1.54)
+sphere4 = sphereSurface (V3 (5) 0 (30)) 15 (plainColor (V3 255 0 255)) (schlickShader $ reflectanceFromRefractionIndex 1.54)
 
 planeSurface position normal texture shader
   = Surface (planeIntersection plane)
@@ -249,7 +256,7 @@ planeSurface position normal texture shader
   where plane = Plane position normal
 
 plane = planeSurface (V3 0 (-15) 0 ) (V3 0 1 0 ) (checker (V3 32 32 32) (V3 127 127 127) 10) defaultDiffuseShader
-scene = [ plane, sphere2 ]
+scene = [ plane, sphere1, sphere2, sphere3, sphere4 ]
 camera = defaultCamera 1
 light = PointLight (V3 30 30 0) 0.1e5
 --light = DirectionalLight (V3  1 1 1) 0.2e5
