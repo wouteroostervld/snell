@@ -114,12 +114,8 @@ planeIntersection Plane{..} Line{..}
     where incline = lineDirection *. planeNormal
           d = ( ( planePosition -. lineSupport ) *. planeNormal ) / incline
 
-
-sm:: Double -> Vector3 -> Vector3
-sm = (*^)
-
 distance2Coord:: Line -> Double -> Vector3
-distance2Coord Line{..} distance = lineSupport +. ( distance `sm` lineDirection )
+distance2Coord Line{..} distance = lineSupport +. ( distance *^ lineDirection )
 
 sphereSurfaceNormal Sphere{..} hitpoint = normalize ( hitpoint -. spherePosition )
 
@@ -169,7 +165,7 @@ diffuseShader albedo World{..} hitpoint snv color ray
           (V3 r g b) = color
           shadow = case worldLight of PointLight{..} -> not $ null $ filter (\x -> x < absolute lv) $ catMaybes $ map (\s -> surfaceIntersection s (Line hitpoint_bias (normalize lv))) worldSurfaces
                                       DirectionalLight{..} -> not $ null $ catMaybes $ map (\s -> surfaceIntersection s (Line hitpoint_bias (normalize lv))) worldSurfaces
-          hitpoint_bias = (1e-7 `sm` snv ) +. hitpoint
+          hitpoint_bias = (1e-7 *^ snv ) +. hitpoint
 
 defaultDiffuseShader = (diffuseShader pi)
 
@@ -185,8 +181,8 @@ perfectReflectionShader = reflectionShader (V3 1.0 1.0 1.0)
 reflectionShader :: ColorF -> World -> Hitpoint -> Normal -> Color -> Ray -> ColorF
 reflectionShader reflectance w@World{..} hitpoint snv _ ray
     = reflectance * (castRay (World (Camera hitpoint_bias []) worldLight worldSurfaces) rv)
-    where rv = ( ray -. ( ( 2 * ( ray *. snv ) ) `sm` snv ) )
-          hitpoint_bias = (1e-7 `sm` snv ) +. hitpoint
+    where rv = ( ray -. ( ( 2 * ( ray *. snv ) ) *^ snv ) )
+          hitpoint_bias = (1e-7 *^ snv ) +. hitpoint
 
 schlickShader :: Double -> World -> Hitpoint -> Normal -> Color -> Ray -> ColorF
 schlickShader r0 w@World{..} hitpoint snv color ray
@@ -194,8 +190,8 @@ schlickShader r0 w@World{..} hitpoint snv color ray
     where viewangle = abs $ ray *. snv
           r = r0 + ((1 - r0) * (( 1 - viewangle) ** 5))
           n1 = 1
-          reflection = r `sm` (perfectReflectionShader w hitpoint snv color ray)
-          diffusion = (1 - r) `sm` (defaultDiffuseShader w hitpoint snv color ray)
+          reflection = r *^ (perfectReflectionShader w hitpoint snv color ray)
+          diffusion = (1 - r) *^ (defaultDiffuseShader w hitpoint snv color ray)
 
 schlickMetalShader:: Double -> Double -> World -> Hitpoint -> Normal -> Color -> Ray -> ColorF
     -- from "Fresnel Term Approximations for Metals" Lazányi and Szirmay-Kalos
@@ -204,8 +200,8 @@ schlickMetalShader n k w@World{..} hitpoint snv color ray
     = reflection +. diffusion
     where viewangle = abs $ ray *. snv
           r = ((( n - 1) ** 2) + ( 4 * n * (( 1 - viewangle ) ** 5)) + (k ** 2)) / (((n + 1) ** 2) + (k ** 2))
-          reflection = r `sm` taint color (perfectReflectionShader w hitpoint snv color ray)
-          diffusion = (1 - r) `sm` (defaultDiffuseShader w hitpoint snv color ray)
+          reflection = r *^ taint color (perfectReflectionShader w hitpoint snv color ray)
+          diffusion = (1 - r) *^ (defaultDiffuseShader w hitpoint snv color ray)
 
 clamp:: Double -> Double
 clamp x = min 1 (max 0 x)
