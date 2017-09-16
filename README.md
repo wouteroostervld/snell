@@ -1,4 +1,5 @@
 # snell
+
 Raytracer in haskell
 
 ## Goal
@@ -8,15 +9,12 @@ pictures. The 'pbrt' of haskell ( https://github.com/mmp ).
 
 ## TODO
 
-Things I intent to implement. Pull requests welcome.
+[ ] Absract stuff into modules.
+[ ] Use lua to define scene(s), camera's, objects, shaders, texture (image and mapping), position and scale (STR matrices).
+[ ] Use lua, multiple scenes and something like ffmpeg to create animation.
+[ ] Make asynchreous processing using the lua scripting -possible- default.
 
-- [ ] Scene definition language (aeson? parsec?)
-- [ ] Scaling, Rotation and Translation ( matrices/quaternions )
-- [ ] physically based shading (monte carlo sampling, gloss)
-- [ ] reading RAW-vertex data
-- [ ] reading Stanford PLY-vertex data
-
-Example using directional light:
+Use the Surface datatype with only funtions. Add state using (custom) constructor function. Static state by inserting partially evaluated functions. Like colorplain :: Color -> Hitpoint -> Color the Surface takes a Hitpoint -> Color so suplly the plain color. -Dynamic state by using a ST/Ref or something. Most of the time a Configuration as SRT-matrix as state is enough.- Dynamic state is not needed. Add SRT to init and make lua plumbing. (With an object keeping track of STR. Make STR setting (even if null) happen before setting shaders etc.) Actual contructor can be in haskell taking some long record.
 
 ![Diffuse balls](/examples/images/diffuse_balls.png)
 
