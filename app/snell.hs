@@ -77,22 +77,18 @@ cameraRays:: Int -> Int -> Double -> Double -> [Vector3]
 cameraRays xc yc ar fl = [ (V3 x y (-fl)) | y <- _y_cam_coords yc (1/ar), x <- _x_cam_coords xc ar ]
 defaultCamera focallength = Camera (V3 0 0 0) (map normalize $ cameraRays 1280 720 1.78 focallength)
 
-absolute = norm
-
 -- inproduct between vectors
 -- cosine of angle when used with normalized vectors
 -- AKA magnitude*|a||b| of projection of the smaller on the bigger vector
 (*.) = dot
-
 (-.) = (-)
-
 (+.) = (+)
 
 sphereIntersectionFormula:: Vector3 -> Vector3 -> Sphere -> Vector3
 sphereIntersectionFormula support direction Sphere{..} = (V3 a b c)
     where a = 1
           b = 2 * ( direction *. ( support -. spherePosition ))
-          c = ((absolute ( support -. spherePosition )) ** 2) - ( sphereRadius ** 2 )
+          c = ((norm ( support -. spherePosition )) ** 2) - ( sphereRadius ** 2 )
 
 calcD:: Vector3 -> Double
 calcD (V3 a b c) = (b ** 2) - ( 4 * a * c )
@@ -158,12 +154,12 @@ diffuseShader albedo World{..} hitpoint snv color ray
     where lv = case worldLight of DirectionalLight{..} -> dlDirection
                                   PointLight{..} -> plPosition -. hitpoint
           factor = case worldLight of (DirectionalLight _ i) -> (albedo / pi ) * i * ((normalize lv) *. snv)
-                                      (PointLight _ i) -> (albedo / pi) * i * ((normalize lv) *. snv) / ( 4 * pi * ( absolute lv ) ^ 2 )
+                                      (PointLight _ i) -> (albedo / pi) * i * ((normalize lv) *. snv) / ( 4 * pi * ( norm lv ) ^ 2 )
           sr = fromIntegral(r)*factor
           sg = fromIntegral(g)*factor
           sb = fromIntegral(b)*factor
           (V3 r g b) = color
-          shadow = case worldLight of PointLight{..} -> not $ null $ filter (\x -> x < absolute lv) $ catMaybes $ map (\s -> surfaceIntersection s (Line hitpoint_bias (normalize lv))) worldSurfaces
+          shadow = case worldLight of PointLight{..} -> not $ null $ filter (\x -> x < norm lv) $ catMaybes $ map (\s -> surfaceIntersection s (Line hitpoint_bias (normalize lv))) worldSurfaces
                                       DirectionalLight{..} -> not $ null $ catMaybes $ map (\s -> surfaceIntersection s (Line hitpoint_bias (normalize lv))) worldSurfaces
           hitpoint_bias = (1e-7 *^ snv ) +. hitpoint
 
@@ -239,7 +235,7 @@ sphereSurface position radius texture shader
             (shader)
             (sphereSurfaceNormal sphere)
   where sphere = Sphere position radius
-sphere1 = sphereSurface (V3 (15) 30 (-90)) 45(plainColor (V3 255 215 1)) (reflectionShader (V3 0 1 0))
+sphere1 = sphereSurface (V3 (15) 10 (-90)) 60 (plainColor (V3 255 215 1)) (reflectionShader (V3 0 1 0))
 sphere2 = sphereSurface (V3 (-15) 0 (-45)) 15 (plainColor (V3 255 215 1)) (schlickShader $ reflectanceFromRefractionIndex 1.54)
 sphere3 = sphereSurface (V3 (-15) 0 (-150)) 15 (plainColor (V3 0 255 255)) (schlickShader $ reflectanceFromRefractionIndex 1.54)
 sphere4 = sphereSurface (V3 (5) 0 (30)) 15 (plainColor (V3 255 0 255)) (schlickShader $ reflectanceFromRefractionIndex 1.54)
@@ -251,10 +247,10 @@ planeSurface position normal texture shader
             (\_ -> normal)
   where plane = Plane position normal
 
-plane = planeSurface (V3 0 (-15) 0 ) (V3 0 1 0 ) (checker (V3 32 32 32) (V3 127 127 127) 10) defaultDiffuseShader
+plane = planeSurface (V3 0 (-15) 0 ) (normalize (V3 0 1 0.3)) (\x -> checker (V3 32 32 32) (V3 127 127 127) 10 (rotate (axisAngle (V3 0 1 0) (1.75 * pi)) x)) defaultDiffuseShader
 scene = [ plane, sphere1, sphere2, sphere3, sphere4 ]
-camera = defaultCamera 1
-light = PointLight (V3 30 30 0) 0.1e5
+camera = defaultCamera 0.8
+light = PointLight (V3 30 30 0) 0.1e4
 --light = DirectionalLight (V3  1 1 1) 0.2e5
 Camera _ rays = camera
 
